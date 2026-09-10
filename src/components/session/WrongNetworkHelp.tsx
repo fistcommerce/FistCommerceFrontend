@@ -13,7 +13,7 @@ export default function WrongNetworkHelp() {
           <>
             {' '}
             enable <span className="font-medium text-[#374151]">testnet mode</span> in your wallet
-            settings when using Sepolia, then
+            settings when using a testnet (Arbitrum Sepolia or Arc Testnet), then
           </>
         ) : (
           <> then</>

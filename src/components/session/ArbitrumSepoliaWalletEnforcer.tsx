@@ -11,7 +11,7 @@ import WrongNetworkHelp from '@/components/session/WrongNetworkHelp'
 import { disconnectLinkedWalletOnly, disconnectPrivySession } from '@/session/disconnectPrivySession'
 import { resetUserSession } from '@/session/resetUserSession'
 import { ADMIN_LOGIN_PATH, shouldRedirectToAdminLogin } from '@/auth/adminSession'
-import { MAINNET_CHAIN_ID, TESTNET_CHAIN_ID, getUnsupportedNetworkMessage } from '@/contract_config/contractNetwork'
+import { getUnsupportedNetworkMessage } from '@/contract_config/contractNetwork'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { store } from '@/store'
 import { resetWallet } from '@/store/slices/walletSlice'
@@ -20,8 +20,6 @@ import {
   getAppChainById,
   getSupportedAppChains,
   isSupportedAppChainId,
-  MAINNET_CHAIN,
-  TESTNET_CHAIN,
 } from '@/wallet/appChain'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { formatWalletChainSwitchError } from '@/wallet/walletChainErrors'
@@ -46,7 +44,7 @@ function logEnsureWalletChainFailure(
 
 /**
  * Blocks the app when the wallet is on an unsupported chain.
- * Supported: Arbitrum One + Arbitrum Sepolia (or local-only when env is local).
+ * Supported: Arbitrum One, Arbitrum Sepolia, and Arc Testnet (or local-only when env is local).
  * Does not auto-switch between supported chains.
  */
 export default function ArbitrumSepoliaWalletEnforcer() {
@@ -63,9 +61,7 @@ export default function ArbitrumSepoliaWalletEnforcer() {
 
   const skipEnforcer = isOnboardingConnectWalletPath(pathname)
   const supported = getSupportedAppChains()
-  const dualDeployed =
-    supported.some((c) => c.id === MAINNET_CHAIN_ID) &&
-    supported.some((c) => c.id === TESTNET_CHAIN_ID)
+  const multiChain = supported.length > 1
 
   const runEnsureWalletChain = useCallback(
     async (targetChainId: number, context: string) => {
@@ -144,12 +140,13 @@ export default function ArbitrumSepoliaWalletEnforcer() {
     }
   }, [choosingWallet, wallet, dispatch, role, navigate])
 
-  const primaryChain = dualDeployed ? MAINNET_CHAIN : supported[0]
-  const secondaryChain = dualDeployed ? TESTNET_CHAIN : null
+  const primaryChain = supported[0]
+  const secondaryChain = multiChain ? (supported[1] ?? null) : null
+  const extraChains = multiChain ? supported.slice(2) : []
 
   const modalMessage = switchError
     ? switchError
-    : dualDeployed
+    : multiChain
       ? `${getUnsupportedNetworkMessage()} Choose a different wallet, or log out.`
       : `This app runs on ${primaryChain?.name ?? 'the app network'} only. Switch your wallet, choose a different wallet, or log out.`
 
@@ -190,7 +187,21 @@ export default function ArbitrumSepoliaWalletEnforcer() {
       onSecondary={() => void handleLogoutWrongNetwork()}
       onClose={() => {}}
     >
-      {dualDeployed ? (
+      {extraChains.map((chain) => (
+        <button
+          key={chain.id}
+          type="button"
+          disabled={switching || choosingWallet}
+          onClick={() => {
+            if (!wallet) return
+            void runEnsureWalletChain(chain.id, `switchExtra-${chain.id}`)
+          }}
+          className="mt-3 w-full rounded-[6px] border border-[#E6E8EC] bg-white px-4 py-2.5 text-[14px] font-medium text-[#195EBC] hover:bg-[#F9FAFB] disabled:opacity-50"
+        >
+          {switchingTarget === chain.id ? 'Switching…' : `Switch to ${chain.name}`}
+        </button>
+      ))}
+      {multiChain ? (
         <button
           type="button"
           disabled={switching || choosingWallet}

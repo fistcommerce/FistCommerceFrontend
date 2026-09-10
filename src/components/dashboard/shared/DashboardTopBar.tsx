@@ -1,10 +1,11 @@
 import { Link, useLocation } from 'react-router-dom'
 
-import arbitrumLogo from '@/assets/arbitrum_icon.jpeg.png'
 import logo from '@/assets/logo.png'
 import mobileHamburgerIcon from '@/assets/mobile-hamburger.png'
 import mobileNotificationIcon from '@/assets/mobile-notification.png'
 import mobileUserIcon from '@/assets/mobile-user.png'
+import WalletNetworkMark from '@/components/session/WalletNetworkMark'
+import { useAppSelector } from '@/store/hooks'
 
 import type { DashboardBellIconProps, DashboardTopBarProps } from './types'
 
@@ -38,6 +39,9 @@ const DashboardTopBar = ({
   menuButtonAriaLabel,
 }: DashboardTopBarProps) => {
   const { pathname } = useLocation()
+  const walletChainId = useAppSelector((s) => s.wallet.chainId)
+  const authChainId = useAppSelector((s) => s.auth.chainId)
+  const markChainId = walletChainId ?? authChainId
   const isMerchantDashboard = pathname.startsWith('/dashboard/merchant')
   const profileTo = isMerchantDashboard
     ? '/dashboard/merchant/profile/overview'
@@ -129,7 +133,7 @@ const DashboardTopBar = ({
               {walletDisplay}
             </span>
             <span className="h-5 w-px shrink-0 bg-[#E6E8EC]" aria-hidden />
-            <img src={arbitrumLogo} alt="" className="h-5 w-5 shrink-0 object-contain" />
+            <WalletNetworkMark chainId={markChainId} />
           </Link>
         ) : (
           <button

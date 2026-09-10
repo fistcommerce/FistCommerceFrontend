@@ -68,6 +68,12 @@ export function getDefaultArbitrumOneBlockExplorerBase(): string | null {
   return raw.replace(/\/+$/, '')
 }
 
+/** Vite: Arc Testnet explorer origin (no trailing slash), e.g. `https://testnet.arcscan.app` */
+export function getDefaultArcTestnetBlockExplorerBase(): string | null {
+  const raw = readEnvTrim('VITE_ARC_TESTNET_BLOCK_EXPLORER_URL') || 'https://testnet.arcscan.app'
+  return raw.replace(/\/+$/, '')
+}
+
 function resolveExplorerChainId(explicit?: number | null): number | null {
   if (explicit != null && Number.isFinite(explicit)) return Math.trunc(explicit)
   try {
@@ -87,7 +93,9 @@ export function getDefaultPoolContractAddress(chainId?: number | null): string |
   const id = resolveExplorerChainId(chainId)
   if (id != null) {
     const mode = modeFromChainId(id)
-    if (mode === 'local' || mode === 'mainnet') return getFundingPoolAddress(id)
+    if (mode === 'local' || mode === 'mainnet' || mode === 'arc-testnet') {
+      return getFundingPoolAddress(id)
+    }
     if (mode === 'testnet') return getDefaultArbitrumSepoliaPoolContractAddress() ?? getFundingPoolAddress(id)
   }
   if (isLocalContractNetwork() || isMainnetContractNetwork()) {
@@ -107,6 +115,9 @@ export function getDefaultBlockExplorerBase(chainId?: number | null): string | n
   }
   if (mode === 'mainnet' || (mode == null && isMainnetContractNetwork())) {
     return getDefaultArbitrumOneBlockExplorerBase()
+  }
+  if (mode === 'arc-testnet') {
+    return getDefaultArcTestnetBlockExplorerBase()
   }
   return getDefaultArbitrumSepoliaBlockExplorerBase()
 }

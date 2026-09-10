@@ -47,12 +47,14 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
   const [error, setError] = useState<string | null>(null)
   const [preferred, setPreferred] = useState<NetworkChoice>(() => readPreferredNetwork())
 
-  const active: NetworkChoice =
+  const active: NetworkChoice | null =
     walletChainId === MAINNET_CHAIN.id
       ? 'mainnet'
       : walletChainId === TESTNET_CHAIN.id
         ? 'testnet'
-        : preferred
+        : walletChainId != null
+          ? null
+          : preferred
 
   const select = useCallback(
     async (choice: NetworkChoice) => {

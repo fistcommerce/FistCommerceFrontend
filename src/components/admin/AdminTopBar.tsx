@@ -1,7 +1,7 @@
-import arbitrumLogo from '@/assets/arbitrum_icon.jpeg.png'
 import logo from '@/assets/logo.png'
 import mobileHamburgerIcon from '@/assets/mobile-hamburger.png'
 import mobileUserIcon from '@/assets/mobile-user.png'
+import WalletNetworkMark from '@/components/session/WalletNetworkMark'
 import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
 import { useAppSelector } from '@/store/hooks'
 
@@ -22,8 +22,9 @@ const AdminTopBar = ({
 }: AdminTopBarProps) => {
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
   const authChainId = useAppSelector((s) => s.auth.chainId)
+  const markChainId = walletChainId ?? authChainId
   const networkLabel =
-    networkDisplayName ?? getAppChainDisplayName(walletChainId ?? authChainId)
+    networkDisplayName ?? getAppChainDisplayName(markChainId)
   const titleBlock = (
     <h1 className="text-black font-semibold text-[18px] sm:text-[24px] leading-tight truncate">{title}</h1>
   )
@@ -73,7 +74,7 @@ const AdminTopBar = ({
                 {walletDisplay}
               </span>
               <span className="h-5 w-px shrink-0 bg-[#E6E8EC]" aria-hidden />
-              <img src={arbitrumLogo} alt="" className="h-5 w-5 shrink-0 object-contain" />
+              <WalletNetworkMark chainId={markChainId} />
             </div>
           ) : (
             <button

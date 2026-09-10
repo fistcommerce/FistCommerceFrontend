@@ -1,6 +1,7 @@
 import {
   getContractNetworkLabel,
   getNetworkSessionBadgeLabel,
+  isArcTestnetContractNetwork,
   isMainnetContractNetwork,
   isTestnetContractNetwork,
 } from '@/contract_config/contractNetwork'
@@ -18,7 +19,7 @@ export default function NetworkSessionBadge() {
   const label = getNetworkSessionBadgeLabel(chainId)
   if (!label || chainId == null) return null
 
-  const isTestnet = isTestnetContractNetwork(chainId)
+  const isTestnet = isTestnetContractNetwork(chainId) || isArcTestnetContractNetwork(chainId)
   const isMainnet = isMainnetContractNetwork(chainId)
   const title = getContractNetworkLabel(chainId)
 

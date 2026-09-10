@@ -7,6 +7,7 @@ import {
   canMintTestTokens,
   getAcceptedTokenDisplayName,
   getAppChainDisplayName,
+  isArcTestnetContractNetwork,
 } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
@@ -227,6 +228,9 @@ const InvestorProfileWalletsTabContent = () => {
           <p className="mt-2 text-[#6B7488] text-[14px] leading-relaxed">
             Mint {acceptedTokenName} tokens to your connected wallet on {appNetworkLabel}. Use these to
             deposit into the lending pool — your investment balance is tracked separately as pool shares.
+            {isArcTestnetContractNetwork(contracts.isConnected ? contracts.chainId : chainId) ? (
+              <> Native USDC pays gas on Arc Testnet and cannot be minted here.</>
+            ) : null}
           </p>
 
           {!isConnected ? (

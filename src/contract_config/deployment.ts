@@ -1,11 +1,13 @@
 import type { Abi, Address } from 'viem'
 
 import {
+  ARC_TESTNET_CHAIN_ID,
   isLocalOnlyDeployMode,
   MAINNET_CHAIN_ID,
   modeFromChainId,
   TESTNET_CHAIN_ID,
 } from '@/contract_config/contractNetwork'
+import arcTestnetDeployment from '@/contract_config/arc-testnet-deployment-config.json'
 import localConfig from '@/contract_config/local-deployment-config.json'
 import mainnetDeployment from '@/contract_config/mainnet-deployment-config.json'
 import testnetDeployment from '@/contract_config/testnet-deployment-config.json'
@@ -116,7 +118,7 @@ function resolveMockErc20Entry(
   if (rawToken?.address) {
     return {
       address: rawToken.address,
-      abi: rawToken.abi ?? MINIMAL_ERC20_ABI,
+      abi: rawToken.abi && rawToken.abi.length > 0 ? rawToken.abi : MINIMAL_ERC20_ABI,
     }
   }
   const localToken = localAddresses?.acceptedToken ?? localAddresses?.MockERC20
@@ -195,6 +197,7 @@ function withLocalAddresses(
 
 const testnetBase = normalizeDeployment(testnetRaw)
 const mainnetBase = normalizeDeployment(mainnetDeployment as FullDeploymentJson)
+const arcTestnetBase = normalizeDeployment(arcTestnetDeployment as Partial<FullDeploymentJson>)
 const localBase = withLocalAddresses(testnetBase, local)
 
 export type ActiveDeployment = FullDeploymentJson & { MockERC20: ContractEntry }
@@ -207,6 +210,7 @@ export function getDeploymentForChainId(chainId: number | null | undefined): Act
   const id = Math.trunc(chainId)
   if (id === MAINNET_CHAIN_ID) return mainnetBase
   if (id === TESTNET_CHAIN_ID) return testnetBase
+  if (id === ARC_TESTNET_CHAIN_ID) return arcTestnetBase
   if (id === LOCAL_CHAIN.id || modeFromChainId(id) === 'local') return localBase
   return isLocalOnlyDeployMode() ? localBase : testnetBase
 }

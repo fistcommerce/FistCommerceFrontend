@@ -157,7 +157,7 @@ function stripHexNoise(text: string): string {
     .trim()
 }
 
-/** RPC / viem phrasing for “not enough ETH to pay gas” on the *caller* wallet. */
+/** RPC / viem phrasing for “not enough native gas (ETH or USDC)” on the *caller* wallet. */
 function isInsufficientNativeGasText(text: string): boolean {
   // Prefer domain reverts over outer estimate-gas / insufficient-funds wrappers.
   if (
@@ -170,8 +170,8 @@ function isInsufficientNativeGasText(text: string): boolean {
   }
   return (
     /insufficient funds(?:\s+for\s+(?:gas|intrinsic))?/i.test(text) ||
-    /not enough (?:ETH|native(?:\s+token)?).*(?:gas|fee|transaction)/i.test(text) ||
-    /(?:gas|fee|transaction).*(?:not enough|insufficient).*(?:ETH|native)/i.test(text)
+    /not enough (?:ETH|USDC|native(?:\s+token)?).*(?:gas|fee|transaction)/i.test(text) ||
+    /(?:gas|fee|transaction).*(?:not enough|insufficient).*(?:ETH|USDC|native)/i.test(text)
   )
 }
 

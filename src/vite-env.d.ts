@@ -24,8 +24,9 @@ interface ImportMetaEnv {
   readonly VITE_AUTH_EIP712_VERIFYING_CONTRACT?: `0x${string}`
   /**
    * Smart contract network preference.
-   * Deployed apps support Arbitrum One + Sepolia dynamically from the wallet.
+   * Deployed apps support Arbitrum One, Sepolia, and Arc Testnet from the wallet.
    * `local` pins Anvil-only. `testnet`/`mainnet` are legacy defaults for Privy defaultChain only.
+   * Arc Testnet is wallet-selectable and is not this env default.
    */
   readonly VITE_CONTRACT_NETWORK?: 'local' | 'testnet' | 'mainnet'
   /** Local Anvil RPC URL when `VITE_CONTRACT_NETWORK=local`. Default: http://127.0.0.1:8545 */
@@ -36,6 +37,10 @@ interface ImportMetaEnv {
   readonly VITE_LOCAL_BLOCK_EXPLORER_URL?: string
   /** Arbitrum One JSON-RPC URL for public client reads when on mainnet. */
   readonly VITE_MAINNET_RPC_URL?: string
+  /** Arc Testnet JSON-RPC URL. Default: https://rpc.testnet.arc.io */
+  readonly VITE_ARC_TESTNET_RPC_URL?: string
+  /** Arc Testnet block explorer origin. Default: https://testnet.arcscan.app */
+  readonly VITE_ARC_TESTNET_BLOCK_EXPLORER_URL?: string
   readonly VITE_ARBITRUM_SEPOLIA_BLOCK_EXPLORER_URL?: string
   readonly VITE_ARBITRUM_SEPOLIA_POOL_CONTRACT_ADDRESS?: string
   /** Arbitrum One block explorer origin. Default: https://arbiscan.io */

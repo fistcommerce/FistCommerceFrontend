@@ -35,7 +35,7 @@ const supportedChains = [...getSupportedAppChains()]
 
 if (import.meta.env.DEV) {
   console.info(
-    `[contracts] dual-chain ready — supported: ${supportedChains.map((c) => `${c.name} (${c.id})`).join(', ')}${
+    `[contracts] supported chains: ${supportedChains.map((c) => `${c.name} (${c.id})`).join(', ')}${
       isLocalOnlyDeployMode() ? ` @ ${LOCAL_CHAIN.rpcUrls.default.http[0]}` : ''
     }`,
   )

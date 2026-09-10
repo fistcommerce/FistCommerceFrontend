@@ -2,7 +2,11 @@ import { arbitrum, arbitrumSepolia } from 'viem/chains'
 import { defineChain, type Chain } from 'viem'
 
 import localConfig from '@/contract_config/local-deployment-config.json'
-import { getContractNetworkMode, isLocalOnlyDeployMode } from '@/contract_config/contractNetwork'
+import {
+  ARC_TESTNET_CHAIN_ID,
+  getContractNetworkMode,
+  isLocalOnlyDeployMode,
+} from '@/contract_config/contractNetwork'
 
 type LocalChainConfig = {
   chainId: number
@@ -42,6 +46,14 @@ function resolveMainnetRpcUrl(): string {
   return readEnvTrim('VITE_MAINNET_RPC_URL') || arbitrum.rpcUrls.default.http[0]
 }
 
+function resolveArcTestnetRpcUrl(): string {
+  return readEnvTrim('VITE_ARC_TESTNET_RPC_URL') || 'https://rpc.testnet.arc.io'
+}
+
+function resolveArcTestnetExplorerUrl(): string {
+  return readEnvTrim('VITE_ARC_TESTNET_BLOCK_EXPLORER_URL') || 'https://testnet.arcscan.app'
+}
+
 /** Anvil / Hardhat — used when `VITE_CONTRACT_NETWORK=local`. */
 export const LOCAL_CHAIN: Chain = defineChain({
   id: resolveLocalChainId(),
@@ -67,6 +79,19 @@ export const MAINNET_CHAIN: Chain = defineChain({
   },
 })
 
+/** Arc Testnet — native USDC gas; pool token is Fist MockERC20. */
+export const ARC_TESTNET_CHAIN: Chain = defineChain({
+  id: ARC_TESTNET_CHAIN_ID,
+  name: 'Arc Testnet',
+  nativeCurrency: { name: 'USD Coin', symbol: 'USDC', decimals: 18 },
+  rpcUrls: {
+    default: { http: [resolveArcTestnetRpcUrl()] },
+  },
+  blockExplorers: {
+    default: { name: 'Arcscan', url: resolveArcTestnetExplorerUrl() },
+  },
+})
+
 /**
  * Privy / wrong-network default when no wallet chain is set.
  * Follows `VITE_CONTRACT_NETWORK` so mainnet deploys default to Arbitrum One.
@@ -79,11 +104,11 @@ export const DEFAULT_APP_CHAIN: Chain = (() => {
 
 /**
  * Chains the product allows for login + contracts.
- * Local-only mode: Anvil only. Otherwise: Arbitrum One + Sepolia.
+ * Local-only mode: Anvil only. Otherwise: Arbitrum One, Sepolia, then Arc Testnet.
  */
 export function getSupportedAppChains(): readonly Chain[] {
   if (isLocalOnlyDeployMode()) return [LOCAL_CHAIN]
-  return [MAINNET_CHAIN, TESTNET_CHAIN]
+  return [MAINNET_CHAIN, TESTNET_CHAIN, ARC_TESTNET_CHAIN]
 }
 
 export function getSupportedAppChainIds(): readonly number[] {

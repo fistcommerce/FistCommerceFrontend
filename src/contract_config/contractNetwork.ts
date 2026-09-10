@@ -1,5 +1,5 @@
 /** Deploy / session network mode derived from chain id or legacy env. */
-export type ContractNetworkMode = 'local' | 'testnet' | 'mainnet'
+export type ContractNetworkMode = 'local' | 'testnet' | 'mainnet' | 'arc-testnet'
 
 const CONTRACT_NETWORK_ENV_KEY = 'VITE_CONTRACT_NETWORK'
 
@@ -7,6 +7,8 @@ const CONTRACT_NETWORK_ENV_KEY = 'VITE_CONTRACT_NETWORK'
 export const MAINNET_CHAIN_ID = 42161
 /** Arbitrum Sepolia */
 export const TESTNET_CHAIN_ID = 421614
+/** Arc Testnet */
+export const ARC_TESTNET_CHAIN_ID = 5042002
 
 function readEnvTrim(key: string): string {
   const raw = (import.meta.env as Record<string, string | undefined>)[key]?.trim()
@@ -34,6 +36,7 @@ export function modeFromChainId(chainId: number | null | undefined): ContractNet
   const id = Math.trunc(chainId)
   if (id === MAINNET_CHAIN_ID) return 'mainnet'
   if (id === TESTNET_CHAIN_ID) return 'testnet'
+  if (id === ARC_TESTNET_CHAIN_ID) return 'arc-testnet'
   if (isLocalOnlyDeployMode() && id === Number(readEnvTrim('VITE_LOCAL_CHAIN_ID') || 31337)) {
     return 'local'
   }
@@ -57,6 +60,11 @@ export function isMainnetContractNetwork(chainId?: number | null): boolean {
   return getContractNetworkMode() === 'mainnet'
 }
 
+export function isArcTestnetContractNetwork(chainId?: number | null): boolean {
+  if (chainId != null) return modeFromChainId(chainId) === 'arc-testnet'
+  return false
+}
+
 export function getContractNetworkLabel(chainId?: number | null): string {
   const mode = chainId != null ? modeFromChainId(chainId) : getContractNetworkMode()
   switch (mode) {
@@ -66,6 +74,8 @@ export function getContractNetworkLabel(chainId?: number | null): string {
       return 'Arbitrum One'
     case 'testnet':
       return 'Arbitrum Sepolia'
+    case 'arc-testnet':
+      return 'Arc Testnet'
     default:
       return 'Unknown network'
   }
@@ -84,6 +94,8 @@ export function getAppChainDisplayName(chainId?: number | null): string {
       return 'Arbitrum One'
     case 'testnet':
       return 'Arbitrum Sepolia'
+    case 'arc-testnet':
+      return 'Arc Testnet'
     default:
       return 'Unknown network'
   }
@@ -94,6 +106,7 @@ export function getNetworkSessionBadgeLabel(chainId: number | null | undefined):
   const mode = modeFromChainId(chainId)
   if (mode === 'mainnet') return 'Mainnet'
   if (mode === 'testnet') return 'Testnet'
+  if (mode === 'arc-testnet') return 'Arc Testnet'
   if (mode === 'local') return 'Local'
   return null
 }
@@ -107,13 +120,13 @@ export function getUnsupportedNetworkMessage(options?: { short?: boolean }): str
       : `Your wallet is on an unsupported network. Switch to ${name}, then try again.`
   }
   return options?.short
-    ? 'Unsupported network. Switch to Arbitrum One or Arbitrum Sepolia.'
-    : 'Your wallet is on an unsupported network. Switch to Arbitrum One (mainnet) or Arbitrum Sepolia (testnet), then try again.'
+    ? 'Unsupported network. Switch to Arbitrum One, Arbitrum Sepolia, or Arc Testnet.'
+    : 'Your wallet is on an unsupported network. Switch to Arbitrum One (mainnet), Arbitrum Sepolia (testnet), or Arc Testnet, then try again.'
 }
 
 /**
  * Display name for the pool accepted token.
- * Mainnet uses native USDC; local/testnet use the mock ERC-20 faucet token.
+ * Mainnet uses Circle USDC; local / Arbitrum Sepolia / Arc Testnet use the mock ERC-20 faucet token.
  */
 export function getAcceptedTokenDisplayName(chainId?: number | null): string {
   return isMainnetContractNetwork(chainId) ? 'USDC' : 'Mock ERC-20'
@@ -121,13 +134,13 @@ export function getAcceptedTokenDisplayName(chainId?: number | null): string {
 
 /**
  * Default decimals before / if on-chain `decimals()` has not resolved.
- * USDC on Arbitrum One is 6; mock tokens on local/testnet are typically 18.
+ * USDC on Arbitrum One is 6; mock tokens on local / Sepolia / Arc Testnet are 18.
  */
 export function getAcceptedTokenDefaultDecimals(chainId?: number | null): number {
   return isMainnetContractNetwork(chainId) ? 6 : 18
 }
 
-/** Test-token mint / faucet is only available off mainnet. */
+/** Test-token mint / faucet is available off mainnet (Sepolia, Arc Testnet, local). */
 export function canMintTestTokens(chainId?: number | null): boolean {
   return !isMainnetContractNetwork(chainId)
 }
