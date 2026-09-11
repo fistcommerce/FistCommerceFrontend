@@ -1,3 +1,5 @@
+import './polyfills'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PrivyProvider, type PrivyClientConfig } from '@privy-io/react-auth'
 import React from 'react'
@@ -13,6 +15,7 @@ import {
   LOCAL_CHAIN,
 } from '@/wallet/appChain'
 import WalletReduxSync from '@/components/session/WalletReduxSync'
+import { CircleWalletProvider } from '@/circle/CircleWalletProvider'
 import AuthStorageSync from '@/store/AuthStorageSync'
 import FullPageLoading from '@/components/app/FullPageLoading'
 import { persistor, store } from '@/store'
@@ -72,10 +75,12 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <PersistGate loading={<FullPageLoading label="Restoring your session…" />} persistor={persistor}>
         <AuthStorageSync />
         <PrivyProvider appId={privyAppId ?? ''} config={privyConfig}>
-          <QueryClientProvider client={queryClient}>
-            <WalletReduxSync />
-            <App />
-          </QueryClientProvider>
+          <CircleWalletProvider>
+            <QueryClientProvider client={queryClient}>
+              <WalletReduxSync />
+              <App />
+            </QueryClientProvider>
+          </CircleWalletProvider>
         </PrivyProvider>
       </PersistGate>
     </Provider>

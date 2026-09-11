@@ -1,5 +1,4 @@
-import type { ConnectedWallet } from '@privy-io/react-auth'
-
+import type { AppWallet } from '@/wallet/appWallet'
 import { store } from '@/store'
 import { setWalletFromProvider } from '@/store/slices/walletSlice'
 
@@ -18,11 +17,10 @@ export type SyncWalletChainOptions = {
 }
 
 /**
- * Reads `eth_chainId` from the Privy-linked provider and mirrors it into Redux.
- * Use the same `isConnected` / `address` as {@link useActiveWallet} so the slice stays consistent.
+ * Reads `eth_chainId` from the active wallet provider and mirrors it into Redux.
  */
 export async function syncWalletChainIdFromProviderToRedux(
-  wallet: ConnectedWallet,
+  wallet: AppWallet,
   isConnected: boolean,
   address: string | null,
   options?: SyncWalletChainOptions,

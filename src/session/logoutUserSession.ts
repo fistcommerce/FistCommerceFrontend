@@ -1,4 +1,4 @@
-import type { ConnectedWallet } from '@privy-io/react-auth'
+import type { AppWallet } from '@/wallet/appWallet'
 
 import type { AppDispatch } from '@/store'
 import { disconnectPrivySession } from '@/session/disconnectPrivySession'
@@ -9,7 +9,7 @@ const CHOOSE_ROLE_PATH = '/onboarding/choose-role'
 /** Clears user auth, wallet mirror, onboarding state, and redirects to role selection. */
 export async function logoutUserSession(
   dispatch: AppDispatch,
-  wallet: ConnectedWallet | null,
+  wallet: AppWallet | null,
   logout: (() => Promise<void>) | undefined,
 ): Promise<void> {
   resetUserSession(dispatch)

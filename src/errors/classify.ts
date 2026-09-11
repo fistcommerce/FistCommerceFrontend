@@ -415,6 +415,9 @@ function classifySharedFromText(t: string): ClassifiedAppError | null {
   if (isServicerInsufficientNativeText(t) || isAccountPrefundGasText(t)) {
     return codeResult('SERVICER_INSUFFICIENT_NATIVE', t)
   }
+  if (/Fund this Circle wallet with Arc Testnet USDC/i.test(t) || /CIRCLE_ARC_GAS/i.test(t)) {
+    return codeResult('CIRCLE_ARC_GAS', t)
+  }
   if (isInsufficientNativeGasText(t)) {
     return codeResult('INSUFFICIENT_NATIVE', t)
   }

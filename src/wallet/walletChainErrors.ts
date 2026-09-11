@@ -1,3 +1,5 @@
+import { isCircleUserRejectedError } from '@/circle/errors'
+
 export function eip1193ErrorCode(e: unknown): number | undefined {
   if (e && typeof e === 'object' && 'code' in e) {
     const c = (e as { code?: unknown }).code
@@ -16,7 +18,11 @@ function errorMessage(e: unknown): string {
 export function isUserRejectedWalletRequest(e: unknown): boolean {
   if (eip1193ErrorCode(e) === 4001) return true
   if (e instanceof Error && e.name === 'UserRejectedRequestError') return true
-  return /user rejected|denied transaction|request rejected|action rejected/i.test(errorMessage(e))
+  if (e instanceof Error && e.name === 'CircleUserRejectedError') return true
+  if (isCircleUserRejectedError(e)) return true
+  return /user rejected|denied transaction|request rejected|action rejected|cancelled the circle|pin.*(cancel|closed)/i.test(
+    errorMessage(e),
+  )
 }
 
 /** Whether a failed `wallet_switchEthereumChain` likely means the chain is not in the wallet yet. */
@@ -48,6 +54,9 @@ export function formatWalletChainSwitchError(err: unknown, chainName: string): s
   if (err instanceof WalletChainSwitchError) return err.message
   if (isUserRejectedWalletRequest(err)) {
     return `Network switch to ${chainName} was cancelled. Approve the prompt in your wallet app.`
+  }
+  if (/circle/i.test(errorMessage(err))) {
+    return `Could not switch Circle Wallet to ${chainName}. Circle uses a different address on each network.`
   }
   return `Could not switch to ${chainName}. Try the manual steps below or enable testnets in your wallet settings.`
 }

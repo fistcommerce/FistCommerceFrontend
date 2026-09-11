@@ -7,6 +7,8 @@ export type WalletSliceState = {
   chainId: number | undefined
   /** True while a wallet write (approve / deposit / repay) is in flight. */
   writePending: boolean
+  /** True while a Circle PIN/challenge (including login) is in flight. */
+  actionPending: boolean
 }
 
 const initialState: WalletSliceState = {
@@ -14,6 +16,7 @@ const initialState: WalletSliceState = {
   address: null,
   chainId: undefined,
   writePending: false,
+  actionPending: false,
 }
 
 const walletSlice = createSlice({
@@ -31,9 +34,13 @@ const walletSlice = createSlice({
     setWalletWritePending: (state, action: PayloadAction<boolean>) => {
       state.writePending = action.payload
     },
+    setWalletActionPending: (state, action: PayloadAction<boolean>) => {
+      state.actionPending = action.payload
+    },
     resetWallet: () => initialState,
   },
 })
 
-export const { setWalletFromProvider, setWalletWritePending, resetWallet } = walletSlice.actions
+export const { setWalletFromProvider, setWalletWritePending, setWalletActionPending, resetWallet } =
+  walletSlice.actions
 export const walletReducer = walletSlice.reducer

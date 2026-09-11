@@ -1,4 +1,3 @@
-import type { ConnectedWallet } from '@privy-io/react-auth'
 import {
   createPublicClient,
   createWalletClient,
@@ -9,6 +8,7 @@ import {
   type WalletClient,
 } from 'viem'
 
+import { isCircleAppWallet, type AppEthereumProvider, type AppWallet } from '@/wallet/appWallet'
 import {
   APP_CHAIN,
   DEFAULT_APP_CHAIN,
@@ -22,11 +22,13 @@ import {
   shouldTryAddEthereumChain,
   WalletChainSwitchError,
 } from '@/wallet/walletChainErrors'
+import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
+import { getAppStore } from '@/store/storeRef'
 
 /** @deprecated Prefer `DEFAULT_APP_CHAIN` or `getAppChainById`. */
 export const DEFAULT_EVM_CHAIN = APP_CHAIN
 
-type EthereumProvider = Awaited<ReturnType<ConnectedWallet['getEthereumProvider']>>
+type EthereumProvider = AppEthereumProvider
 
 const publicClientByChainId = new Map<number, PublicClient>()
 
@@ -38,8 +40,8 @@ function resolveChain(chainId?: number | null): Chain {
   return getAppChainById(chainId) ?? DEFAULT_APP_CHAIN
 }
 
-export async function getWalletClientFromPrivyWallet(
-  wallet: ConnectedWallet,
+export async function getWalletClientFromActiveWallet(
+  wallet: AppWallet,
   chainId?: number | null,
 ): Promise<WalletClient> {
   const provider = await wallet.getEthereumProvider()
@@ -50,6 +52,9 @@ export async function getWalletClientFromPrivyWallet(
     account: wallet.address as `0x${string}`,
   })
 }
+
+/** @deprecated Use {@link getWalletClientFromActiveWallet}. */
+export const getWalletClientFromPrivyWallet = getWalletClientFromActiveWallet
 
 export function getPublicClient(chainId?: number | null): PublicClient {
   const chain = resolveChain(chainId)
@@ -167,7 +172,17 @@ async function switchWithOptionalAdd(
   }
 }
 
-export async function ensureWalletChain(wallet: ConnectedWallet, chainId: number): Promise<void> {
+function hasFistSessionTokens(): boolean {
+  try {
+    const auth = (getAppStore()?.getState() as { auth?: { accessToken?: string | null; refreshToken?: string | null } })
+      ?.auth
+    return Boolean(auth?.refreshToken?.trim()) || isUsableApiAccessToken(auth?.accessToken)
+  } catch {
+    return false
+  }
+}
+
+export async function ensureWalletChain(wallet: AppWallet, chainId: number): Promise<void> {
   const chain = getAppChainById(chainId)
   if (!chain) {
     throw new WalletChainSwitchError(`Unsupported chain id ${chainId}.`, new Error('unsupported_chain'))
@@ -177,6 +192,23 @@ export async function ensureWalletChain(wallet: ConnectedWallet, chainId: number
 
   const current = await readProviderChainId(provider)
   if (current === chainId) {
+    try {
+      await syncWalletChainIdFromProviderToRedux(wallet, Boolean(wallet.address), wallet.address ?? null)
+    } catch {
+      /* Redux mirror is best-effort. */
+    }
+    return
+  }
+
+  if (isCircleAppWallet(wallet)) {
+    if (hasFistSessionTokens()) {
+      throw new WalletChainSwitchError(
+        `Circle Wallet uses a different address on ${chain.name}. Sign in again on that network to continue.`,
+        new Error('circle_address_change'),
+      )
+    }
+    const hex = `0x${chainId.toString(16)}`
+    await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: hex }] })
     try {
       await syncWalletChainIdFromProviderToRedux(wallet, Boolean(wallet.address), wallet.address ?? null)
     } catch {
@@ -219,7 +251,7 @@ export async function ensureWalletChain(wallet: ConnectedWallet, chainId: number
 
 /** Read the provider chain id without trusting Redux. */
 export async function readWalletProviderChainId(
-  wallet: ConnectedWallet,
+  wallet: AppWallet,
 ): Promise<number | undefined> {
   const provider = await wallet.getEthereumProvider()
   return readProviderChainId(provider)

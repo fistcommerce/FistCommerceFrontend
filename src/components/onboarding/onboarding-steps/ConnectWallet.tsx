@@ -21,18 +21,36 @@ import { setInvestorWalletDisplay } from '@/store/slices/investorDashboardSlice'
 import { setMerchantWalletDisplay } from '@/store/slices/merchantDashboardSlice'
 import { parseUserRole } from '@/utils/userRole'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import { getAppChainById, isSupportedAppChainId } from '@/wallet/appChain'
+import { useCircleWallet } from '@/circle/CircleWalletProvider'
+import { isCircleWalletEnabled } from '@/circle/enabled'
+import type { CircleAuthMethod } from '@/circle/types'
+import CircleConnectPanel from '@/components/onboarding/onboarding-steps/CircleConnectPanel'
+import {
+  ARC_TESTNET_CHAIN,
+  MAINNET_CHAIN,
+  TESTNET_CHAIN,
+  getAppChainById,
+  isSupportedAppChainId,
+} from '@/wallet/appChain'
 import { isUserRejectedWalletRequest } from '@/wallet/walletChainErrors'
 import {
   getWalletClientFromPrivyWallet,
   readWalletProviderChainId,
 } from '@/wallet/viemClients'
-import NetworkModeSwitcher from '@/components/session/NetworkModeSwitcher'
+import NetworkModeSwitcher, { readPreferredNetwork } from '@/components/session/NetworkModeSwitcher'
 import { getUnsupportedNetworkMessage } from '@/contract_config/contractNetwork'
 
 function truncateAddress(address: string) {
   if (address.length <= 12) return address
   return `${address.slice(0, 6)}...${address.slice(-4)}`
+}
+
+function preferredConnectChainId(walletChainId: number | null | undefined): number {
+  if (walletChainId != null && isSupportedAppChainId(walletChainId)) return walletChainId
+  const preferred = readPreferredNetwork()
+  if (preferred === 'mainnet') return MAINNET_CHAIN.id
+  if (preferred === 'arc-testnet') return ARC_TESTNET_CHAIN.id
+  return TESTNET_CHAIN.id
 }
 
 function isWalletSignRejected(e: unknown): boolean {
@@ -52,8 +70,10 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
   const navigate = useNavigate()
 
   const { ready: privyReady, login, connectWallet, logout } = usePrivy()
-  const { wallet, address, isConnected, walletClientType, ready: walletsReady, setActiveWalletId } =
+  const { wallet, address, isConnected, walletClientType, source, ready: walletsReady, setActiveWalletId } =
     useActiveWallet()
+  const circle = useCircleWallet()
+  const showCircleOption = isCircleWalletEnabled()
   const chainId = useAppSelector((s) => s.wallet.chainId)
 
   const [rowError, setRowError] = React.useState<string | null>(null)
@@ -62,6 +82,10 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
   const [connecting, setConnecting] = React.useState(false)
   const [disconnecting, setDisconnecting] = React.useState(false)
   const [loggingOut, setLoggingOut] = React.useState(false)
+  const [circlePanelOpen, setCirclePanelOpen] = React.useState(false)
+  const [circleConnectingMethod, setCircleConnectingMethod] = React.useState<CircleAuthMethod | null>(
+    null,
+  )
 
   const wrongNetwork =
     isConnected && chainId != null && !isSupportedAppChainId(chainId)
@@ -103,6 +127,11 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
     }
     setConnecting(true)
     try {
+      if (source === 'circle') {
+        await circle.disconnect()
+        setActiveWalletId(null)
+        dispatch(resetWallet())
+      }
       await login()
     } catch (e) {
       setRowError(
@@ -129,6 +158,11 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
     }
     setConnecting(true)
     try {
+      if (source === 'circle') {
+        await circle.disconnect()
+        setActiveWalletId(null)
+        dispatch(resetWallet())
+      }
       await connectWallet()
     } catch (e) {
       setRowError(
@@ -140,6 +174,39 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
       console.error(e)
     } finally {
       setConnecting(false)
+    }
+  }
+
+  const handleConnectCircleWallet = async (
+    method: CircleAuthMethod,
+    options?: { email?: string; pinUserId?: string },
+  ) => {
+    setRowError(null)
+    setConnecting(true)
+    setCircleConnectingMethod(method)
+    try {
+      if (source === 'privy' && wallet) {
+        await disconnectLinkedWalletOnly(wallet)
+        setActiveWalletId(null)
+        dispatch(resetWallet())
+      }
+      const connected = await circle.connect(preferredConnectChainId(chainId), method, {
+        email: options?.email,
+        pinUserId: options?.pinUserId,
+      })
+      setActiveWalletId(connected.address)
+      setCirclePanelOpen(false)
+    } catch (e) {
+      setRowError(
+        toAppUserFacingError(e, {
+          fallback: 'Could not connect Circle Wallet.',
+          context: 'onboarding',
+        }),
+      )
+      console.error(e)
+    } finally {
+      setConnecting(false)
+      setCircleConnectingMethod(null)
     }
   }
 
@@ -299,8 +366,8 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
         <div className="flex flex-col gap-2 mb-6 lg:mb-8">
           <h3 className="text-black font-bold text-[20px]">Connect Your Wallet</h3>
           <p className="text-[#6B7488]">
-            Use email/Google to create an embedded wallet, or connect an external wallet (MetaMask, WalletConnect, Phantom EVM).
-            Choose Testnet or Mainnet at the top right before signing in.
+            Create an embedded wallet, connect a browser wallet, or use Circle. Network is chosen at the
+            top right — Arc, Sepolia, and Mainnet use different Circle addresses.
           </p>
         </div>
 
@@ -367,13 +434,46 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
             <span className="text-black font-bold truncate">Connect external wallet</span>
             <span className="text-[14px] text-[#6B7488]">{connecting ? 'Opening…' : 'Connect'}</span>
           </button>
+
+          {showCircleOption ? (
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setCirclePanelOpen((v) => !v)}
+                disabled={connecting || authInFlight || disconnecting || circle.actionPending}
+                aria-expanded={circlePanelOpen}
+                className="flex items-center justify-between rounded-md border border-[#EAEAEA] bg-white px-4 py-3 hover:bg-[#F9FAFB] disabled:opacity-60"
+              >
+                <div className="flex min-w-0 flex-col items-start gap-0.5">
+                  <span className="text-black font-bold truncate">Connect Circle Wallet</span>
+                  <span className="text-[12px] font-normal text-[#6B7488]">
+                    Google, Apple, Facebook, email, or PIN
+                  </span>
+                </div>
+                <span className="text-[14px] text-[#6B7488] shrink-0 ml-3">
+                  {connecting || circle.actionPending
+                    ? 'Opening…'
+                    : circlePanelOpen
+                      ? 'Close'
+                      : 'Open'}
+                </span>
+              </button>
+              {circlePanelOpen ? (
+                <CircleConnectPanel
+                  busy={connecting || authInFlight || disconnecting || circle.actionPending}
+                  connectingMethod={circleConnectingMethod}
+                  onConnect={(method, options) => void handleConnectCircleWallet(method, options)}
+                />
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-auto lg:mt-6 pt-5 lg:pt-0">
           <button
             type="button"
             onClick={() => void handleContinue()}
-            disabled={!isConnected || authInFlight || disconnecting}
+            disabled={!isConnected || authInFlight || disconnecting || circle.actionPending}
             className="bg-[#195EBC] text-white px-4 py-3 rounded-md w-full mt-1 disabled:opacity-60"
           >
             {authInFlight ? 'Signing in…' : 'Continue'}

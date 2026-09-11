@@ -48,7 +48,7 @@ const AdminLoginPage = () => {
   const navigate = useNavigate()
   const { ready: privyReady, login, connectWallet } = usePrivy()
   const { wallet, address, isConnected, walletClientType, ready: walletsReady, setActiveWalletId } =
-    useActiveWallet()
+    useActiveWallet({ includeCircle: false })
 
   const [connecting, setConnecting] = useState(false)
   const [authInFlight, setAuthInFlight] = useState(false)

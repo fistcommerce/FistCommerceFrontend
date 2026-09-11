@@ -1,4 +1,7 @@
-import type { ConnectedWallet } from '@privy-io/react-auth'
+import type { AppWallet } from '@/wallet/appWallet'
+import { isCircleAppWallet } from '@/wallet/appWallet'
+import { clearCircleClientState } from '@/circle/storage'
+import { resetCircleSdk } from '@/circle/sdk'
 
 export const ACTIVE_WALLET_STORAGE_KEY = 'fistcommerce.activeWalletId'
 
@@ -16,10 +19,10 @@ export function clearStoredActiveWalletId(): void {
   }
 }
 
-async function revokeAndDisconnectWallet(wallet: ConnectedWallet | null): Promise<void> {
+async function revokeAndDisconnectWallet(wallet: AppWallet | null): Promise<void> {
   try {
     const provider = (await wallet?.getEthereumProvider?.()) as Eip1193Provider | undefined
-    if (provider?.request) {
+    if (provider?.request && !isCircleAppWallet(wallet)) {
       await provider.request({
         method: 'wallet_revokePermissions',
         params: [{ eth_accounts: {} }],
@@ -36,22 +39,32 @@ async function revokeAndDisconnectWallet(wallet: ConnectedWallet | null): Promis
 }
 
 /** Disconnect the linked wallet without ending the Privy login session. */
-export async function disconnectLinkedWalletOnly(wallet: ConnectedWallet | null): Promise<void> {
+export async function disconnectLinkedWalletOnly(wallet: AppWallet | null): Promise<void> {
   await revokeAndDisconnectWallet(wallet)
+  if (isCircleAppWallet(wallet)) {
+    clearCircleClientState()
+    resetCircleSdk()
+  }
   clearStoredActiveWalletId()
 }
 
 /**
- * Best-effort client disconnect then Privy session end.
- * `wallet.disconnect()` is a no-op for some injected wallets (e.g. MetaMask); `logout()` clears Privy auth.
+ * Best-effort client disconnect then Privy session end (skipped for Circle-only sessions).
  */
 export async function disconnectPrivySession(
-  wallet: ConnectedWallet | null,
+  wallet: AppWallet | null,
   logout: (() => Promise<void>) | undefined,
 ): Promise<void> {
+  const circle = isCircleAppWallet(wallet)
   await revokeAndDisconnectWallet(wallet)
+  if (circle) {
+    clearCircleClientState()
+    resetCircleSdk()
+  }
   clearStoredActiveWalletId()
-  if (typeof logout === 'function') {
+  if (!circle && typeof logout === 'function') {
     await logout()
   }
 }
+
+export const disconnectAppSession = disconnectPrivySession

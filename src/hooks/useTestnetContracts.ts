@@ -9,6 +9,7 @@ import {
   canMintTestTokens,
   getAcceptedTokenDefaultDecimals,
   getAppChainDisplayName,
+  isArcTestnetContractNetwork,
 } from '@/contract_config/contractNetwork'
 import { postMerchantRepaymentSubmit } from '@/api/payout'
 import { displayDashboardMetricString } from '@/api/metrics'
@@ -101,7 +102,7 @@ export type UseTestnetContractsOptions = {
  */
 export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   const dispatch = useAppDispatch()
-  const { wallet, address, isConnected } = useActiveWallet()
+  const { wallet, address, isConnected, source } = useActiveWallet()
   const chainId = useAppSelector((s) => s.wallet.chainId)
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const authChainId = useAppSelector((s) => s.auth.chainId)
@@ -130,6 +131,30 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
     },
     [dispatch],
   )
+
+  const requireCircleArcGas = useCallback(async () => {
+    if (source !== 'circle' || !address) return
+    if (!isArcTestnetContractNetwork(contractsChain.id)) return
+    const bal = await publicClient.getBalance({ address: address as `0x${string}` })
+    if (bal === 0n) {
+      throw new Error(
+        'Fund this Circle wallet with Arc Testnet USDC for gas, then mint or deposit pool tokens here.',
+      )
+    }
+  }, [address, publicClient, source, contractsChain.id])
+
+  const writeFeeOverrides = useCallback(async () => {
+    if (source === 'circle' && isArcTestnetContractNetwork(contractsChain.id)) {
+      try {
+        const fees = await getBufferedEip1559Fees(publicClient)
+        if (fees.maxFeePerGas == null) return {}
+        return fees
+      } catch {
+        return {}
+      }
+    }
+    return getBufferedEip1559Fees(publicClient)
+  }, [publicClient, source, contractsChain.id])
 
   const isCorrectNetwork = isSupportedAppChainId(chainId) && chainId === contractsChain.id
   const readsEnabled = Boolean(
@@ -536,11 +561,12 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       setIsWritePending(true)
       const currentAllowance = allowanceBn ?? 0n
       try {
+        await requireCircleArcGas()
         await ensureWalletChain(wallet, contractsChain.id)
         const walletClient = await getWalletClientFromPrivyWallet(wallet, contractsChain.id)
 
         if (currentAllowance < amount) {
-          const approveGasFees = await getBufferedEip1559Fees(publicClient)
+          const approveGasFees = await writeFeeOverrides()
           const approveHash = await walletClient.writeContract({
             address: tokenAddress,
             abi: mockErc20Abi,
@@ -554,7 +580,7 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
           await allowanceQuery.refetch()
         }
 
-        const depositGasFees = await getBufferedEip1559Fees(publicClient)
+        const depositGasFees = await writeFeeOverrides()
         const depositHash = await walletClient.writeContract({
           address: fundingPoolAddress,
           abi: fundingPoolAbi,
@@ -580,6 +606,8 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       refetchBalances,
       tokenDecimals,
       wallet,
+      requireCircleArcGas,
+      writeFeeOverrides,
     ],
   )
 
@@ -599,9 +627,10 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
 
       setIsWritePending(true)
       try {
+        await requireCircleArcGas()
         await ensureWalletChain(wallet, contractsChain.id)
         const walletClient = await getWalletClientFromPrivyWallet(wallet, contractsChain.id)
-        const gasFees = await getBufferedEip1559Fees(publicClient)
+        const gasFees = await writeFeeOverrides()
         const mintHash = await walletClient.writeContract({
           address: tokenAddress,
           abi: mockErc20Abi,
@@ -618,7 +647,7 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
         setIsWritePending(false)
       }
     },
-    [address, contractsChainLabel, isConnected, isCorrectNetwork, publicClient, refetchBalances, tokenDecimals, wallet],
+    [address, contractsChainLabel, isConnected, isCorrectNetwork, publicClient, refetchBalances, tokenDecimals, wallet, requireCircleArcGas, writeFeeOverrides],
   )
 
   const readPayoutRouterAllowance = useCallback(async (): Promise<bigint> => {
@@ -659,9 +688,10 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
 
       setIsWritePending(true)
       try {
+        await requireCircleArcGas()
         await ensureWalletChain(wallet, contractsChain.id)
         const walletClient = await getWalletClientFromPrivyWallet(wallet, contractsChain.id)
-        const gasFees = await getBufferedEip1559Fees(publicClient)
+        const gasFees = await writeFeeOverrides()
 
         const approveHash = await walletClient.writeContract({
           address: tokenAddress,
@@ -699,6 +729,8 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       readPayoutRouterAllowance,
       tokenDecimals,
       wallet,
+      requireCircleArcGas,
+      writeFeeOverrides,
     ],
   )
 
@@ -785,9 +817,10 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
 
       setIsWritePending(true)
       try {
+        await requireCircleArcGas()
         await ensureWalletChain(wallet, contractsChain.id)
         const walletClient = await getWalletClientFromPrivyWallet(wallet, contractsChain.id)
-        const gasFees = await getBufferedEip1559Fees(publicClient)
+        const gasFees = await writeFeeOverrides()
         const hash = await walletClient.writeContract({
           address: fundingPoolAddress,
           abi: fundingPoolAbi,
@@ -813,6 +846,8 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       totalAssetsBn,
       totalSharesBn,
       wallet,
+      requireCircleArcGas,
+      writeFeeOverrides,
     ],
   )
 
@@ -833,9 +868,10 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
 
       setIsWritePending(true)
       try {
+        await requireCircleArcGas()
         await ensureWalletChain(wallet, contractsChain.id)
         const walletClient = await getWalletClientFromPrivyWallet(wallet, contractsChain.id)
-        const gasFees = await getBufferedEip1559Fees(publicClient)
+        const gasFees = await writeFeeOverrides()
         const hash = await walletClient.writeContract({
           address: fundingPoolAddress,
           abi: fundingPoolAbi,
@@ -862,6 +898,8 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       publicClient,
       refetchBalances,
       wallet,
+      requireCircleArcGas,
+      writeFeeOverrides,
     ],
   )
 

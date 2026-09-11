@@ -7,6 +7,16 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
   /** Privy App ID (public) */
   readonly VITE_PRIVY_APP_ID?: string
+  /** Public Circle Web SDK app id. Circle API secrets must stay on the server. */
+  readonly VITE_CIRCLE_APP_ID?: string
+  /** Set `true` to show Connect Circle Wallet (disabled in local/Anvil mode). */
+  readonly VITE_CIRCLE_WALLET_ENABLED?: string
+  /** Google OAuth Web Client ID for Circle social login (Configurator + this env). */
+  readonly VITE_CIRCLE_GOOGLE_CLIENT_ID?: string
+  /** Facebook App ID for Circle social login. */
+  readonly VITE_CIRCLE_FACEBOOK_APP_ID?: string
+  /** JSON string of Firebase web config for Circle Apple social login. */
+  readonly VITE_CIRCLE_APPLE_FIREBASE_CONFIG?: string
   /**
    * Privy App Secret (DO NOT use in frontend).
    * NOTE: Any `VITE_*` env var is bundled into client builds.

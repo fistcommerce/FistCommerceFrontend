@@ -9,15 +9,17 @@
     "serve": "serve -s dist -l 3000"
   },
   "dependencies": {
+    "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
     "@didit-protocol/sdk-web": "^0.2.1",
     "@fontsource/outfit": "^5.2.8",
     "@privy-io/react-auth": "^3.22.1",
     "@reduxjs/toolkit": "^2.11.2",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "latest",
-    "@types/node": "^25.5.0",
     "@walletconnect/ethereum-provider": "^2.23.9",
+    "buffer": "^6.0.3",
     "clsx": "^2.1.1",
+    "process": "^0.11.10",
     "react": "latest",
     "react-dom": "latest",
     "react-is": "^19.2.4",
@@ -30,6 +32,7 @@
     "viem": "latest"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "latest",

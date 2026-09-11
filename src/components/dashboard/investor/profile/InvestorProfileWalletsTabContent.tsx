@@ -27,6 +27,7 @@ function walletClientTypeLabel(walletClientType: string | null | undefined): str
     phantom: 'Phantom',
     wallet_connect: 'WalletConnect',
     coinbase_wallet: 'Coinbase Wallet',
+    circle: 'Circle Wallet',
   }
   return byType[walletClientType] ?? walletClientType
 }
