@@ -31,6 +31,15 @@ export type MerchantRepayLocationState = {
   txHash?: string
   /** Shown on the repay failure page when approval or repayment fails. */
   message?: string
+  /** Multi-chain USDC source chosen on the amount step (CCTP / Arc). */
+  usdcSource?: {
+    chainId: number
+    label: string
+    bridgeKitId: string | null
+    requiresBridge: boolean
+    usdcAddress: string
+    usdcDecimals: number
+  }
 }
 
 export type MerchantRepayLoanContext = {

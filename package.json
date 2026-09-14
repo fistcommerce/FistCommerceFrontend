@@ -9,6 +9,8 @@
     "serve": "serve -s dist -l 3000"
   },
   "dependencies": {
+    "@circle-fin/adapter-viem-v2": "^1.17.1",
+    "@circle-fin/bridge-kit": "^1.14.1",
     "@circle-fin/w3s-pw-web-sdk": "^1.1.11",
     "@didit-protocol/sdk-web": "^0.2.1",
     "@fontsource/outfit": "^5.2.8",

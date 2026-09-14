@@ -124,23 +124,43 @@ export function getUnsupportedNetworkMessage(options?: { short?: boolean }): str
     : 'Your wallet is on an unsupported network. Switch to Arbitrum One (mainnet), Arbitrum Sepolia (testnet), or Arc Testnet, then try again.'
 }
 
+/** Circle public faucet for testnet USDC (including Arc Testnet). */
+export const CIRCLE_TESTNET_FAUCET_URL = 'https://faucet.circle.com/'
+
 /**
  * Display name for the pool accepted token.
- * Mainnet uses Circle USDC; local / Arbitrum Sepolia / Arc Testnet use the mock ERC-20 faucet token.
+ * Arbitrum One + Arc Testnet use Circle USDC; local / Arbitrum Sepolia use Mock ERC-20.
  */
 export function getAcceptedTokenDisplayName(chainId?: number | null): string {
-  return isMainnetContractNetwork(chainId) ? 'USDC' : 'Mock ERC-20'
+  if (isMainnetContractNetwork(chainId) || isArcTestnetContractNetwork(chainId)) {
+    return 'USDC'
+  }
+  return 'Mock ERC-20'
 }
 
 /**
  * Default decimals before / if on-chain `decimals()` has not resolved.
- * USDC on Arbitrum One is 6; mock tokens on local / Sepolia / Arc Testnet are 18.
+ * USDC (Arbitrum One + Arc) is 6; mock tokens on local / Sepolia are 18.
  */
 export function getAcceptedTokenDefaultDecimals(chainId?: number | null): number {
-  return isMainnetContractNetwork(chainId) ? 6 : 18
+  if (isMainnetContractNetwork(chainId) || isArcTestnetContractNetwork(chainId)) {
+    return 6
+  }
+  return 18
 }
 
-/** Test-token mint / faucet is available off mainnet (Sepolia, Arc Testnet, local). */
+/**
+ * In-app MockERC20 mint is available on local Anvil and Arbitrum Sepolia only.
+ * Arc Testnet uses Circle's external faucet for native/ERC-20 USDC.
+ */
 export function canMintTestTokens(chainId?: number | null): boolean {
-  return !isMainnetContractNetwork(chainId)
+  if (chainId != null) {
+    return isLocalContractNetwork(chainId) || isTestnetContractNetwork(chainId)
+  }
+  return isLocalContractNetwork() || isTestnetContractNetwork()
+}
+
+/** Show the wallets-tab faucet section (in-app mint or external Circle link). */
+export function showTestnetFaucetSection(chainId?: number | null): boolean {
+  return canMintTestTokens(chainId) || isArcTestnetContractNetwork(chainId)
 }

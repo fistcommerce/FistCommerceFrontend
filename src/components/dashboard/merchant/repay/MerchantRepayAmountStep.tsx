@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import arbitrumLogo from '@/assets/arbitrum_icon.jpeg.png'
 import { formatInvestAmountUsd } from '@/components/dashboard/investor/invest/config'
@@ -17,6 +17,7 @@ interface MerchantRepayAmountStepProps {
   quickAmounts: readonly number[]
   onAmountSelect: (value: number) => void
   onContinue: () => void
+  balancePicker?: ReactNode
 }
 
 const MerchantRepayAmountStep = ({
@@ -29,6 +30,7 @@ const MerchantRepayAmountStep = ({
   quickAmounts,
   onAmountSelect,
   onContinue,
+  balancePicker,
 }: MerchantRepayAmountStepProps) => {
   const [draft, setDraft] = useState(() => (amount > 0 ? String(amount) : ''))
 
@@ -113,6 +115,8 @@ const MerchantRepayAmountStep = ({
       {walletTokenBalanceLabel ? (
         <p className="text-center text-[#4D5D80] text-[13px] mt-4 max-w-md mx-auto">{walletTokenBalanceLabel}</p>
       ) : null}
+
+      {balancePicker}
 
       {validationError ? (
         <p className="text-center text-[#DC2626] text-[13px] mt-3 max-w-md mx-auto" role="alert">

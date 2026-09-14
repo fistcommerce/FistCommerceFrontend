@@ -138,7 +138,7 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
     const bal = await publicClient.getBalance({ address: address as `0x${string}` })
     if (bal === 0n) {
       throw new Error(
-        'Fund this Circle wallet with Arc Testnet USDC for gas, then mint or deposit pool tokens here.',
+        'Fund this Circle wallet with Arc Testnet USDC from the Circle faucet (gas + deposits), then continue.',
       )
     }
   }, [address, publicClient, source, contractsChain.id])
@@ -614,7 +614,11 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   const mintMockTokens = useCallback(
     async (humanAmount: number): Promise<Hash> => {
       if (!canMintTestTokens(contractsChain.id)) {
-        throw new Error('Test token minting is not available on mainnet.')
+        throw new Error(
+          isArcTestnetContractNetwork(contractsChain.id)
+            ? 'Arc Testnet USDC comes from the Circle faucet, not in-app minting.'
+            : 'Test token minting is not available on this network.',
+        )
       }
       if (!isConnected || !address) throw new Error('Connect your wallet to mint test tokens.')
       if (!wallet) throw new Error('Wallet required')
@@ -647,7 +651,19 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
         setIsWritePending(false)
       }
     },
-    [address, contractsChainLabel, isConnected, isCorrectNetwork, publicClient, refetchBalances, tokenDecimals, wallet, requireCircleArcGas, writeFeeOverrides],
+    [
+      address,
+      contractsChain.id,
+      contractsChainLabel,
+      isConnected,
+      isCorrectNetwork,
+      publicClient,
+      refetchBalances,
+      tokenDecimals,
+      wallet,
+      requireCircleArcGas,
+      writeFeeOverrides,
+    ],
   )
 
   const readPayoutRouterAllowance = useCallback(async (): Promise<bigint> => {

@@ -79,7 +79,7 @@ export const MAINNET_CHAIN: Chain = defineChain({
   },
 })
 
-/** Arc Testnet — native USDC gas; pool token is Fist MockERC20. */
+/** Arc Testnet — native USDC for gas and FundingPool acceptedToken. */
 export const ARC_TESTNET_CHAIN: Chain = defineChain({
   id: ARC_TESTNET_CHAIN_ID,
   name: 'Arc Testnet',

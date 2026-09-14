@@ -32,6 +32,7 @@ const MerchantRepayLoanConfirmationPage = () => {
     repayContext,
     paymentAmount,
     receivableName: state.receivableName ?? repayContext.receivableName,
+    usdcSource: state.usdcSource,
   })
 
   const submitBusy = submit.phase !== 'idle'
@@ -79,7 +80,12 @@ const MerchantRepayLoanConfirmationPage = () => {
       <DashboardRequestFeedbackLayer
         phase={submitBusy ? 'loading' : submit.error ? 'failed' : 'idle'}
         loadingTitle="Submitting repayment"
-        loadingDescription={submit.statusMessage || 'Processing your repayment…'}
+        loadingDescription={
+          submit.statusMessage ||
+          (state.usdcSource?.requiresBridge
+            ? 'Bridging USDC to Arc if needed, then processing repayment…'
+            : 'Processing your repayment…')
+        }
         errorTitle="Unable to submit repayment"
         errorDescription={submit.error ?? undefined}
         onDismiss={() => submit.clearError()}

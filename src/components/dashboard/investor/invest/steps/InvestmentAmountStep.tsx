@@ -3,7 +3,7 @@ import { formatInvestAmountUsd } from '@/components/dashboard/investor/invest/co
 import InvestorBalanceSummaryBoxes from '@/components/dashboard/investor/shared/InvestorBalanceSummaryBoxes'
 import InvestorFlowContinueButton from '@/components/dashboard/investor/shared/InvestorFlowContinueButton'
 import { resolveInvestFlowContinueHint } from '@/utils/investorFlowAmountLimits'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 
 interface InvestmentAmountStepProps {
   amount: number
@@ -15,6 +15,8 @@ interface InvestmentAmountStepProps {
   quickAmounts: readonly number[]
   onAmountSelect: (value: number) => void
   onContinue: () => void
+  /** Optional multi-chain USDC picker (CCTP / Arc). */
+  balancePicker?: ReactNode
 }
 
 const InvestmentAmountStep = ({
@@ -27,6 +29,7 @@ const InvestmentAmountStep = ({
   quickAmounts,
   onAmountSelect,
   onContinue,
+  balancePicker,
 }: InvestmentAmountStepProps) => {
   const [draft, setDraft] = useState(() => (amount > 0 ? String(amount) : ''))
 
@@ -128,6 +131,8 @@ const InvestmentAmountStep = ({
             </div>
           </div>
         </div>
+
+        {balancePicker}
 
         <InvestorFlowContinueButton
           onClick={onContinue}

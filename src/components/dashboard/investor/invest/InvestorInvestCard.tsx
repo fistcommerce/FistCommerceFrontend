@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
+import UsdcBalancePicker from '@/components/bridge/UsdcBalancePicker'
 import {
   buildInvestmentCompletedMetrics,
   buildInvestmentReviewRows,
@@ -16,9 +17,11 @@ import InvestmentConfirmationStep from '@/components/dashboard/investor/invest/s
 import InvestmentPoolSelectionStep from '@/components/dashboard/investor/invest/steps/InvestmentPoolSelectionStep'
 import { InvestmentStep } from '@/components/dashboard/investor/invest/types'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
-import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
+import { ensureArcUsdcForAction } from '@/bridge/ensureArcUsdc'
+import { getAppChainDisplayName, isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
+import { useUsdcBalancePicker } from '@/hooks/useUsdcBalancePicker'
 import { useAppSelector } from '@/store/hooks'
 import { selectInvestorPoolAndMetrics } from '@/store/selectors/investorDashboardSelectors'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
@@ -26,6 +29,7 @@ import {
   filterQuickAmountsByMax,
   validateInvestDepositAmount,
 } from '@/utils/investorFlowAmountLimits'
+import { useActiveWallet } from '@/wallet/useActiveWallet'
 
 interface InvestorInvestCardProps {
   walletDisplay?: string
@@ -61,14 +65,39 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     estimateDepositHumanAmount:
       currentStep === InvestmentStep.InvestmentConfirmation ? displayAmount : undefined,
   })
+  const { wallet, address } = useActiveWallet()
+  const accessToken = useAppSelector((s) => s.auth?.accessToken ?? null)
   const { investmentBalanceDisplay, walletBalanceDisplay, walletBalanceHuman } = useInvestorOnChainBalances()
 
+  const bridgePickerEnabled =
+    isArcTestnetContractNetwork(contracts.testnetChain.id) &&
+    currentStep === InvestmentStep.AmountEntry
+
+  const {
+    balances: usdcBalances,
+    selected: selectedUsdc,
+    selectedChainId,
+    setSelectedChainId,
+    selectedBalanceHuman,
+    loading: balancesLoading,
+    error: balancesError,
+  } = useUsdcBalancePicker({
+    purpose: 'deposit',
+    amountHuman: displayAmount,
+    enabled: bridgePickerEnabled,
+  })
+
+  const effectiveMaxHuman =
+    bridgePickerEnabled && selectedBalanceHuman != null
+      ? selectedBalanceHuman
+      : walletBalanceHuman
+
   const investQuickAmounts = useMemo(
-    () => filterQuickAmountsByMax(INVEST_QUICK_AMOUNTS, walletBalanceHuman),
-    [walletBalanceHuman],
+    () => filterQuickAmountsByMax(INVEST_QUICK_AMOUNTS, effectiveMaxHuman),
+    [effectiveMaxHuman],
   )
 
-  const depositAmountError = validateInvestDepositAmount(displayAmount, walletBalanceHuman)
+  const depositAmountError = validateInvestDepositAmount(displayAmount, effectiveMaxHuman)
 
   const poolInfo = useMemo(
     () => buildLiveInvestmentPoolInfo(lendingPool.poolTitle, poolMetrics),
@@ -112,29 +141,41 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
   ])
 
   const handlePoolContinue = () => {
-    const uiError = validateInvestDepositAmount(displayAmount, walletBalanceHuman)
+    const uiError = validateInvestDepositAmount(displayAmount, effectiveMaxHuman)
     if (uiError) {
       openFlowFailure(uiError, InvestmentStep.PoolSelection)
       return
     }
-    const gate = contracts.canDepositHuman(displayAmount)
-    if (!gate.ok) {
-      openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.PoolSelection)
-      return
+    // When funding from a CCTP source, Arc balance may be low until bridge completes at confirm.
+    if (!selectedUsdc?.requiresBridge) {
+      const gate = contracts.canDepositHuman(displayAmount)
+      if (!gate.ok) {
+        openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.PoolSelection)
+        return
+      }
     }
     setStep(InvestmentStep.InvestmentConfirmation)
   }
 
   const handleAmountContinue = () => {
-    const uiError = validateInvestDepositAmount(displayAmount, walletBalanceHuman)
+    const uiError = validateInvestDepositAmount(displayAmount, effectiveMaxHuman)
     if (uiError) {
       openFlowFailure(uiError, InvestmentStep.AmountEntry)
       return
     }
-    const gate = contracts.canDepositHuman(displayAmount)
-    if (!gate.ok) {
-      openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.AmountEntry)
+    if (selectedUsdc?.sufficient === false) {
+      openFlowFailure(
+        `Insufficient USDC on ${selectedUsdc.label} for this amount.`,
+        InvestmentStep.AmountEntry,
+      )
       return
+    }
+    if (!selectedUsdc?.requiresBridge) {
+      const gate = contracts.canDepositHuman(displayAmount)
+      if (!gate.ok) {
+        openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.AmountEntry)
+        return
+      }
     }
     setStep(InvestmentStep.PoolSelection)
   }
@@ -148,6 +189,19 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     setFeedbackPhase('loading')
     setFeedbackError(null)
     try {
+      if (!wallet || !address) throw new Error('Connect your wallet to invest.')
+      if (isArcTestnetContractNetwork(contracts.testnetChain.id)) {
+        if (!accessToken?.trim()) throw new Error('Sign in to continue.')
+        if (!selectedUsdc) throw new Error('Select a USDC balance to fund this deposit.')
+        await ensureArcUsdcForAction({
+          accessToken,
+          wallet,
+          walletAddress: address,
+          amountHuman: displayAmount,
+          purpose: 'deposit',
+          selected: selectedUsdc,
+        })
+      }
       await contracts.depositFundingPool(displayAmount)
       setFeedbackPhase('idle')
       setStep(InvestmentStep.InvestmentCompleted)
@@ -216,11 +270,23 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
             walletDisplay={walletDisplay ?? '0x7A3F...92C1'}
             walletBalanceDisplay={walletBalanceDisplay}
             investmentBalanceDisplay={investmentBalanceDisplay}
-            maxAmountHuman={walletBalanceHuman}
+            maxAmountHuman={effectiveMaxHuman}
             validationError={depositAmountError}
             quickAmounts={investQuickAmounts}
             onAmountSelect={handleAmountSelect}
             onContinue={handleAmountContinue}
+            balancePicker={
+              bridgePickerEnabled ? (
+                <UsdcBalancePicker
+                  balances={usdcBalances}
+                  selectedChainId={selectedChainId}
+                  onSelect={setSelectedChainId}
+                  loading={balancesLoading}
+                  error={balancesError}
+                  amountHuman={displayAmount}
+                />
+              ) : null
+            }
           />
         )
     }
@@ -231,7 +297,7 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
       <DashboardRequestFeedbackLayer
         phase={activeFeedbackPhase}
         loadingTitle="Submitting investment"
-        loadingDescription="Confirm the deposit in your wallet…"
+        loadingDescription="If needed we bridge USDC to Arc, then confirm the deposit in your wallet…"
         errorTitle="Unable to complete investment"
         errorDescription={feedbackError ?? flowFailure?.message}
         onDismiss={() => {

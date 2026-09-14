@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { Navigate, useLocation, useNavigate, useParams } from 'react-router-dom'
 
+import UsdcBalancePicker from '@/components/bridge/UsdcBalancePicker'
 import MerchantRepayAmountStep from '@/components/dashboard/merchant/repay/MerchantRepayAmountStep'
 import MerchantRepayFlowTabs from '@/components/dashboard/merchant/repay/MerchantRepayFlowTabs'
 import {
@@ -10,12 +11,14 @@ import {
   merchantRepayPaths,
 } from '@/components/dashboard/merchant/repay/repayFlowConfig'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
+import { isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import {
   useMerchantRepayLoanContext,
   type MerchantRepayLocationState,
 } from '@/hooks/useMerchantRepayLoanContext'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useTokenBalanceLabel } from '@/hooks/useTokenBalanceLabel'
+import { useUsdcBalancePicker } from '@/hooks/useUsdcBalancePicker'
 import { useWallet } from '@/hooks/useWallet'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import {
@@ -36,6 +39,20 @@ const MerchantRepayLoanPage = () => {
 
   const [amount, setAmount] = useState(0)
   const [validationError, setValidationError] = useState<string | null>(null)
+
+  const bridgePickerEnabled = isArcTestnetContractNetwork(contracts.testnetChain.id)
+  const {
+    balances: usdcBalances,
+    selected: selectedUsdc,
+    selectedChainId,
+    setSelectedChainId,
+    loading: balancesLoading,
+    error: balancesError,
+  } = useUsdcBalancePicker({
+    purpose: 'repayment',
+    amountHuman: amount,
+    enabled: bridgePickerEnabled,
+  })
 
   const quickAmounts = useMemo(() => {
     const max = repayContext.amountOwedHuman
@@ -63,14 +80,20 @@ const MerchantRepayLoanPage = () => {
       setValidationError(owedError)
       return
     }
-    const gate = contracts.canRepayReceivable(
-      amount,
-      repayContext.onChainReceivableId,
-      repayContext.amountOwedHuman,
-    )
-    if (!gate.ok) {
-      setValidationError(gate.message ?? 'Cannot continue.')
+    if (selectedUsdc?.sufficient === false) {
+      setValidationError(`Insufficient USDC on ${selectedUsdc.label} for this amount.`)
       return
+    }
+    if (!selectedUsdc?.requiresBridge) {
+      const gate = contracts.canRepayReceivable(
+        amount,
+        repayContext.onChainReceivableId,
+        repayContext.amountOwedHuman,
+      )
+      if (!gate.ok) {
+        setValidationError(gate.message ?? 'Cannot continue.')
+        return
+      }
     }
     if (!repayContext.canRepayOnChain) {
       setValidationError(MERCHANT_REPAY_ON_CHAIN_UNAVAILABLE)
@@ -82,7 +105,17 @@ const MerchantRepayLoanPage = () => {
         ...locationState,
         receivableName: repayContext.receivableName,
         paymentAmount: amount,
-      },
+        usdcSource: selectedUsdc
+          ? {
+              chainId: selectedUsdc.chainId,
+              label: selectedUsdc.label,
+              bridgeKitId: selectedUsdc.bridgeKitId,
+              requiresBridge: selectedUsdc.requiresBridge,
+              usdcAddress: selectedUsdc.usdcAddress,
+              usdcDecimals: selectedUsdc.usdcDecimals,
+            }
+          : undefined,
+      } satisfies MerchantRepayLocationState,
     })
   }
 
@@ -121,6 +154,18 @@ const MerchantRepayLoanPage = () => {
             setValidationError(validateMerchantRepayAmount(clamped, repayContext.amountOwedHuman))
           }}
           onContinue={handleContinue}
+          balancePicker={
+            bridgePickerEnabled ? (
+              <UsdcBalancePicker
+                balances={usdcBalances}
+                selectedChainId={selectedChainId}
+                onSelect={setSelectedChainId}
+                loading={balancesLoading}
+                error={balancesError}
+                amountHuman={amount}
+              />
+            ) : null
+          }
         />
       </div>
     </DashboardLayout>

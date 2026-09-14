@@ -1,5 +1,10 @@
 import { displayDashboardMetricString } from '@/api/metrics'
-import { canMintTestTokens, getAcceptedTokenDisplayName } from '@/contract_config/contractNetwork'
+import {
+  canMintTestTokens,
+  CIRCLE_TESTNET_FAUCET_URL,
+  getAcceptedTokenDisplayName,
+  isArcTestnetContractNetwork,
+} from '@/contract_config/contractNetwork'
 import { store } from '@/store'
 
 export const INSUFFICIENT_BALANCE_ORDER_HINT = 'Insufficient balance to fulfil order.'
@@ -43,9 +48,13 @@ export function validateInvestDepositAmount(
   if (maxWalletHuman <= 0) {
     const chainId = activeChainIdForCopy()
     const token = getAcceptedTokenDisplayName(chainId)
-    return canMintTestTokens(chainId)
-      ? `Your wallet has no ${token} available to deposit. Mint test tokens first.`
-      : `Your wallet has no ${token} available to deposit.`
+    if (canMintTestTokens(chainId)) {
+      return `Your wallet has no ${token} available to deposit. Mint test tokens first.`
+    }
+    if (isArcTestnetContractNetwork(chainId)) {
+      return `Your wallet has no ${token} available to deposit. Get Arc Testnet USDC from ${CIRCLE_TESTNET_FAUCET_URL}`
+    }
+    return `Your wallet has no ${token} available to deposit.`
   }
   if (amount > maxWalletHuman + 1e-9) {
     return `Amount cannot exceed your wallet balance of ${displayDashboardMetricString(maxWalletHuman)}.`

@@ -5,9 +5,11 @@ import walletIcon from '@/assets/Icon (1).png'
 import EmbeddedWalletKeyBackup from '@/components/wallet/EmbeddedWalletKeyBackup'
 import {
   canMintTestTokens,
+  CIRCLE_TESTNET_FAUCET_URL,
   getAcceptedTokenDisplayName,
   getAppChainDisplayName,
   isArcTestnetContractNetwork,
+  showTestnetFaucetSection,
 } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
@@ -49,10 +51,12 @@ const InvestorProfileWalletsTabContent = () => {
   const [mintSuccess, setMintSuccess] = useState<string | null>(null)
 
   const contracts = useTestnetContracts()
-  const showMintFaucet = canMintTestTokens(contracts.isConnected ? contracts.chainId : undefined)
-  const acceptedTokenName = getAcceptedTokenDisplayName(
-    contracts.isConnected ? contracts.chainId : undefined,
-  )
+  // Prefer wallet chain, then the hook's resolved session chain (auth / deploy default).
+  const activeChainId = chainId ?? contracts.testnetChain.id
+  const showFaucetSection = showTestnetFaucetSection(activeChainId)
+  const canMintInApp = canMintTestTokens(activeChainId)
+  const isArcFaucet = isArcTestnetContractNetwork(activeChainId)
+  const acceptedTokenName = getAcceptedTokenDisplayName(activeChainId)
   const { investmentBalanceDisplay, poolPositionLoading } = useInvestorOnChainBalances()
 
   const walletBalanceDisplay = useMemo(() => {
@@ -68,7 +72,7 @@ const InvestorProfileWalletsTabContent = () => {
   }, [contracts.isConnected, investmentBalanceDisplay, poolPositionLoading])
 
   const mintDisabledReason = useMemo(() => {
-    if (!showMintFaucet) return 'Test token minting is not available on mainnet.'
+    if (!canMintInApp) return 'Test token minting is not available on this network.'
     if (!contracts.isConnected) return 'Connect your wallet to mint test tokens.'
     if (!contracts.isCorrectNetwork) {
       return `Switch your wallet to ${getAppChainDisplayName(contracts.testnetChain.id)} to mint test tokens.`
@@ -76,7 +80,7 @@ const InvestorProfileWalletsTabContent = () => {
     if (mintAmount <= 0) return 'Enter an amount greater than zero.'
     return null
   }, [
-    showMintFaucet,
+    canMintInApp,
     contracts.isConnected,
     contracts.isCorrectNetwork,
     contracts.testnetChain.id,
@@ -85,7 +89,9 @@ const InvestorProfileWalletsTabContent = () => {
 
   const chainLabel =
     chainId != null ? getAppChainDisplayName(chainId) : '—'
-  const appNetworkLabel = getAppChainDisplayName(contracts.testnetChain.id)
+  const appNetworkLabel = getAppChainDisplayName(
+    activeChainId ?? contracts.testnetChain.id,
+  )
 
   const copyAddress = useCallback(async () => {
     if (!address) return
@@ -223,72 +229,106 @@ const InvestorProfileWalletsTabContent = () => {
 
       <EmbeddedWalletKeyBackup />
 
-      {showMintFaucet ? (
+      {showFaucetSection ? (
         <section className="rounded-[8px] border border-[#E6E8EC] bg-white p-4 sm:p-5">
           <h2 className="text-[#4D5D80] text-[22px] font-semibold leading-tight">Testnet token faucet</h2>
-          <p className="mt-2 text-[#6B7488] text-[14px] leading-relaxed">
-            Mint {acceptedTokenName} tokens to your connected wallet on {appNetworkLabel}. Use these to
-            deposit into the lending pool — your investment balance is tracked separately as pool shares.
-            {isArcTestnetContractNetwork(contracts.isConnected ? contracts.chainId : chainId) ? (
-              <> Native USDC pays gas on Arc Testnet and cannot be minted here.</>
-            ) : null}
-          </p>
 
-          {!isConnected ? (
-            <p className="mt-4 text-[#6B7488] text-[14px]">Connect your wallet to mint test tokens.</p>
-          ) : (
-            <div className="mt-4 rounded-[6px] border border-[#E6E8EC] bg-[#F9FAFB] p-4 sm:p-5">
-              <label className="block text-[#6B7488] text-[13px] font-medium" htmlFor="mint-amount">
-                Amount to mint
-              </label>
-              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <div className="relative flex-1 max-w-[280px]">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#667085] text-[16px] font-semibold">
-                    $
-                  </span>
-                  <input
-                    id="mint-amount"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    value={mintDraft}
-                    onChange={(e) => handleMintDraftChange(e.target.value)}
-                    className="w-full rounded-[6px] border border-[#D9DEE8] bg-white py-2.5 pl-8 pr-3 text-[#0B1220] text-[16px] font-semibold outline-none focus:border-[#195EBC]"
-                    aria-label="Amount to mint"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleMint()}
-                  disabled={Boolean(mintDisabledReason) || contracts.isWritePending}
-                  className="rounded-[6px] bg-[#195EBC] px-5 py-2.5 text-white text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#144a96]"
+          {isArcFaucet ? (
+            <>
+              <p className="mt-2 text-[#6B7488] text-[14px] leading-relaxed">
+                Arc Testnet uses Circle USDC as the pool asset and for gas. Request test USDC from the
+                Circle faucet, then deposit into the lending pool — your investment balance is tracked
+                separately as pool shares.
+              </p>
+              <div className="mt-4 rounded-[6px] border border-[#E6E8EC] bg-[#F9FAFB] p-4 sm:p-5">
+                <p className="text-[#6B7488] text-[13px] leading-relaxed">
+                  Select <span className="font-medium text-[#0B1220]">Arc Testnet</span> and send USDC
+                  to your connected wallet{address ? (
+                    <>
+                      {' '}
+                      (<span className="font-mono text-[12px] text-[#0B1220] break-all">{address}</span>)
+                    </>
+                  ) : null}
+                  .
+                </p>
+                <a
+                  href={CIRCLE_TESTNET_FAUCET_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex rounded-[6px] bg-[#195EBC] px-5 py-2.5 text-white text-[14px] font-medium hover:bg-[#144a96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#195EBC]"
                 >
-                  {contracts.isWritePending ? 'Minting…' : 'Mint test tokens'}
-                </button>
+                  Open Circle faucet
+                </a>
+                <p className="mt-3 text-[#8B92A3] text-[12px] leading-relaxed">
+                  Keep a little USDC for gas after depositing. You can also bridge USDC onto Arc with
+                  Circle Bridge Kit from another testnet.
+                </p>
               </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-2 text-[#6B7488] text-[14px] leading-relaxed">
+                Mint {acceptedTokenName} tokens to your connected wallet on {appNetworkLabel}. Use these to
+                deposit into the lending pool — your investment balance is tracked separately as pool shares.
+              </p>
 
-              <div className="mt-4 flex flex-wrap gap-2">
-                {MINT_QUICK_AMOUNTS.map((value) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => handleMintQuickSelect(value)}
-                    className={`rounded-[4px] px-3 py-1.5 text-[12px] border ${
-                      mintAmount === value
-                        ? 'border-[#195EBC] bg-[#E8EFFB] text-[#195EBC]'
-                        : 'border-[#E6E8EC] bg-white text-[#8B92A3]'
-                    }`}
-                  >
-                    ${value.toLocaleString()}
-                  </button>
-                ))}
-              </div>
+              {!isConnected ? (
+                <p className="mt-4 text-[#6B7488] text-[14px]">Connect your wallet to mint test tokens.</p>
+              ) : (
+                <div className="mt-4 rounded-[6px] border border-[#E6E8EC] bg-[#F9FAFB] p-4 sm:p-5">
+                  <label className="block text-[#6B7488] text-[13px] font-medium" htmlFor="mint-amount">
+                    Amount to mint
+                  </label>
+                  <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center">
+                    <div className="relative flex-1 max-w-[280px]">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#667085] text-[16px] font-semibold">
+                        $
+                      </span>
+                      <input
+                        id="mint-amount"
+                        inputMode="decimal"
+                        autoComplete="off"
+                        value={mintDraft}
+                        onChange={(e) => handleMintDraftChange(e.target.value)}
+                        className="w-full rounded-[6px] border border-[#D9DEE8] bg-white py-2.5 pl-8 pr-3 text-[#0B1220] text-[16px] font-semibold outline-none focus:border-[#195EBC]"
+                        aria-label="Amount to mint"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleMint()}
+                      disabled={Boolean(mintDisabledReason) || contracts.isWritePending}
+                      className="rounded-[6px] bg-[#195EBC] px-5 py-2.5 text-white text-[14px] font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:bg-[#144a96]"
+                    >
+                      {contracts.isWritePending ? 'Minting…' : 'Mint test tokens'}
+                    </button>
+                  </div>
 
-              {mintDisabledReason && !contracts.isWritePending ? (
-                <p className="mt-3 text-[#B45309] text-[13px]">{mintDisabledReason}</p>
-              ) : null}
-              {mintError ? <p className="mt-3 text-[#DC2626] text-[13px]">{mintError}</p> : null}
-              {mintSuccess ? <p className="mt-3 text-[#16A34A] text-[13px]">{mintSuccess}</p> : null}
-            </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {MINT_QUICK_AMOUNTS.map((value) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => handleMintQuickSelect(value)}
+                        className={`rounded-[4px] px-3 py-1.5 text-[12px] border ${
+                          mintAmount === value
+                            ? 'border-[#195EBC] bg-[#E8EFFB] text-[#195EBC]'
+                            : 'border-[#E6E8EC] bg-white text-[#8B92A3]'
+                        }`}
+                      >
+                        ${value.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+
+                  {mintDisabledReason && !contracts.isWritePending ? (
+                    <p className="mt-3 text-[#B45309] text-[13px]">{mintDisabledReason}</p>
+                  ) : null}
+                  {mintError ? <p className="mt-3 text-[#DC2626] text-[13px]">{mintError}</p> : null}
+                  {mintSuccess ? <p className="mt-3 text-[#16A34A] text-[13px]">{mintSuccess}</p> : null}
+                </div>
+              )}
+            </>
           )}
         </section>
       ) : null}
