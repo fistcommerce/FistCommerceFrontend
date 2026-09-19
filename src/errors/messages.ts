@@ -72,6 +72,10 @@ const MESSAGES: Record<AppErrorCode, string> = {
   KYC_REQUIRED: 'Finish identity verification before continuing.',
   CIRCLE_ARC_GAS:
     'Fund this Circle wallet with Arc Testnet USDC for gas (Circle faucet), then mint or deposit pool tokens here.',
+  CIRCLE_BRIDGE_HOP_FAILED:
+    'Could not bridge USDC with Circle Wallet. Approve the network switch, then try again.',
+  BRIDGE_SOURCE_NOT_ACCEPTED:
+    'That USDC chain is not an accepted funding source for this action.',
   PAYOUT_NOT_CONFIRMED_ON_CHAIN:
     'The disbursement transaction was submitted, but on-chain payout is not confirmed yet. Status was left unchanged — verify the tx on a block explorer and retry if needed.',
   FUND_NOT_CONFIRMED_ON_CHAIN:

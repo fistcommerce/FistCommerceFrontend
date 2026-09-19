@@ -24,6 +24,15 @@ function expectCode(
 expectCode('AA25 invalid account nonce', 'governance_execute', 'MULTISIG_STALE_NONCE')
 expectCode('AA25 invalid account nonce', 'withdraw', 'WALLET_NONCE_CONFLICT')
 expectCode('AA25 invalid account nonce', 'invest', 'WALLET_NONCE_CONFLICT')
+expectCode('Reconnect the wallet used for this session to invest.', 'invest', 'WALLET_NOT_CONNECTED')
+expectCode('Connect your wallet to repay.', 'repay', 'WALLET_NOT_CONNECTED')
+{
+  const got = classifyAppError('Reconnect the wallet used for this session to invest.', 'invest')
+  assert(
+    got.message === 'Reconnect the wallet used for this session to invest.',
+    `invest disconnect copy must be preserved, got ${got.message}`,
+  )
+}
 
 expectCode('EntryPoint handleOps simulation failed', 'governance_execute', 'EXEC_SIM_FAILED')
 expectCode('EntryPoint handleOps simulation failed', 'withdraw', 'UNKNOWN')

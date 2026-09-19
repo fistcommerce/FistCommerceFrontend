@@ -11,8 +11,11 @@ export function useConnectWalletAction() {
 
   const clearError = useCallback(() => setError(null), [])
 
-  const connect = useCallback(async () => {
-    if (!privyReady || pending) return
+  const connect = useCallback(async (): Promise<{ ok: boolean; error?: string }> => {
+    if (!privyReady) {
+      return { ok: false, error: 'Wallet is still loading. Please wait a moment and try again.' }
+    }
+    if (pending) return { ok: false, error: 'Wallet connection is already in progress.' }
     setError(null)
     setPending(true)
     try {
@@ -21,14 +24,15 @@ export function useConnectWalletAction() {
       } else {
         await login()
       }
+      return { ok: true }
     } catch (e) {
       console.error(e)
-      setError(
-        toAppUserFacingError(e, {
-          fallback: 'Could not connect wallet. Please try again.',
-          context: 'onboarding',
-        }),
-      )
+      const message = toAppUserFacingError(e, {
+        fallback: 'Could not connect wallet. Please try again.',
+        context: 'onboarding',
+      })
+      setError(message)
+      return { ok: false, error: message }
     } finally {
       setPending(false)
     }

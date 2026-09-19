@@ -16,7 +16,7 @@ import { displayDashboardMetricString } from '@/api/metrics'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { setWalletWritePending } from '@/store/slices/walletSlice'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import { DEFAULT_APP_CHAIN, isSupportedAppChainId, resolveActiveAppChain } from '@/wallet/appChain'
+import { DEFAULT_APP_CHAIN, isSupportedAppChainId } from '@/wallet/appChain'
 import { getBufferedEip1559Fees } from '@/wallet/bufferedEip1559Fees'
 import { ensureWalletChain, getPublicClient, getWalletClientFromPrivyWallet } from '@/wallet/viemClients'
 import {
@@ -25,6 +25,11 @@ import {
   isPoolPositionLoading,
 } from '@/utils/fundingPoolPosition'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
+import {
+  canReadContractBalances,
+  resolveContractReadAddress,
+} from '@/wallet/resolveContractReadAddress'
+import { resolveContractsChain } from '@/wallet/resolveContractsChain'
 
 /** @deprecated Prefer wallet chain + `resolveActiveAppChain`. Default Privy/fallback chain. */
 export const __contractsChain_EXPORT__ = DEFAULT_APP_CHAIN
@@ -106,11 +111,31 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   const chainId = useAppSelector((s) => s.wallet.chainId)
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const authChainId = useAppSelector((s) => s.auth.chainId)
+  const authWallet = useAppSelector((s) => s.auth.wallet)
+  const fundingHop = useAppSelector((s) => s.wallet.fundingHop)
 
-  const contractsChain =
-    resolveActiveAppChain(chainId) ??
-    resolveActiveAppChain(authChainId) ??
-    DEFAULT_APP_CHAIN
+  /**
+   * Circle uses a different address per chain. Balance / pool reads must stay on the
+   * Fist session (Arc) identity — never the temporary CCTP hop SCA.
+   */
+  const readAddress = useMemo(
+    () =>
+      resolveContractReadAddress({
+        source,
+        liveAddress: address,
+        authWallet,
+        fundingSessionWallet: fundingHop?.sessionWallet,
+      }),
+    [source, address, authWallet, fundingHop?.sessionWallet],
+  )
+
+  /**
+   * Prefer live wallet app-chain; fall back to auth when wallet is on a CCTP hop chain.
+   */
+  const contractsChain = useMemo(
+    () => resolveContractsChain({ walletChainId: chainId, authChainId }),
+    [chainId, authChainId],
+  )
   const contractsChainLabel = getAppChainDisplayName(contractsChain.id)
   const deployment = useMemo(
     () => getDeploymentForChainId(contractsChain.id),
@@ -133,15 +158,15 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   )
 
   const requireCircleArcGas = useCallback(async () => {
-    if (source !== 'circle' || !address) return
+    if (source !== 'circle' || !readAddress) return
     if (!isArcTestnetContractNetwork(contractsChain.id)) return
-    const bal = await publicClient.getBalance({ address: address as `0x${string}` })
+    const bal = await publicClient.getBalance({ address: readAddress as `0x${string}` })
     if (bal === 0n) {
       throw new Error(
         'Fund this Circle wallet with Arc Testnet USDC from the Circle faucet (gas + deposits), then continue.',
       )
     }
-  }, [address, publicClient, source, contractsChain.id])
+  }, [readAddress, publicClient, source, contractsChain.id])
 
   const writeFeeOverrides = useCallback(async () => {
     if (source === 'circle' && isArcTestnetContractNetwork(contractsChain.id)) {
@@ -157,10 +182,17 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   }, [publicClient, source, contractsChain.id])
 
   const isCorrectNetwork = isSupportedAppChainId(chainId) && chainId === contractsChain.id
-  const readsEnabled = Boolean(
-    isConnected && address && publicClient && isSupportedAppChainId(contractsChain.id),
-  )
-  const writesEnabled = Boolean(readsEnabled && isCorrectNetwork)
+  /**
+   * Enable reads whenever we have a session/live read address on a supported app chain.
+   * Do not require provider `isConnected` — Circle may still be restoring while auth.wallet
+   * is already known (otherwise invest UI stays on "—").
+   */
+  const readsEnabled = canReadContractBalances({
+    readAddress,
+    contractsChainId: contractsChain.id,
+    isSupportedAppChainId,
+  })
+  const writesEnabled = Boolean(readsEnabled && isCorrectNetwork && address && isConnected)
 
   const decimalsQuery = useQuery({
     queryKey: ['accepted-token-decimals', contractsChain.id, tokenAddress],
@@ -180,61 +212,61 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   )
 
   const balanceQuery = useQuery({
-    queryKey: ['testnet-erc20-balance', contractsChain.id, address],
+    queryKey: ['testnet-erc20-balance', contractsChain.id, readAddress],
     enabled: readsEnabled,
     staleTime: 15_000,
     queryFn: async () => {
-      if (!address) throw new Error('Wallet required')
+      if (!readAddress) throw new Error('Wallet required')
       return await publicClient.readContract({
         address: tokenAddress,
         abi: mockErc20Abi,
         functionName: 'balanceOf',
-        args: [address as `0x${string}`],
+        args: [readAddress as `0x${string}`],
       })
     },
   })
 
   const allowanceQuery = useQuery({
-    queryKey: ['testnet-erc20-allowance', contractsChain.id, address, fundingPoolAddress],
+    queryKey: ['testnet-erc20-allowance', contractsChain.id, readAddress, fundingPoolAddress],
     enabled: readsEnabled,
     staleTime: 15_000,
     queryFn: async () => {
-      if (!address) throw new Error('Wallet required')
+      if (!readAddress) throw new Error('Wallet required')
       return await publicClient.readContract({
         address: tokenAddress,
         abi: mockErc20Abi,
         functionName: 'allowance',
-        args: [address as `0x${string}`, fundingPoolAddress],
+        args: [readAddress as `0x${string}`, fundingPoolAddress],
       })
     },
   })
 
   const payoutRouterAllowanceQuery = useQuery({
-    queryKey: ['testnet-erc20-allowance-payout', contractsChain.id, address, payoutRouterAddress],
+    queryKey: ['testnet-erc20-allowance-payout', contractsChain.id, readAddress, payoutRouterAddress],
     enabled: readsEnabled,
     staleTime: 15_000,
     queryFn: async () => {
-      if (!address) throw new Error('Wallet required')
+      if (!readAddress) throw new Error('Wallet required')
       return await publicClient.readContract({
         address: tokenAddress,
         abi: mockErc20Abi,
         functionName: 'allowance',
-        args: [address as `0x${string}`, payoutRouterAddress],
+        args: [readAddress as `0x${string}`, payoutRouterAddress],
       })
     },
   })
 
   const userSharesQuery = useQuery({
-    queryKey: ['testnet-pool-shares', contractsChain.id, address],
+    queryKey: ['testnet-pool-shares', contractsChain.id, readAddress],
     enabled: readsEnabled,
     staleTime: 15_000,
     queryFn: async () => {
-      if (!address) throw new Error('Wallet required')
+      if (!readAddress) throw new Error('Wallet required')
       return await publicClient.readContract({
         address: fundingPoolAddress,
         abi: fundingPoolAbi,
         functionName: 'shares',
-        args: [address as `0x${string}`],
+        args: [readAddress as `0x${string}`],
       })
     },
   })
@@ -549,11 +581,23 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   )
 
   const depositFundingPool = useCallback(
-    async (humanAmount: number): Promise<Hash> => {
-      const gate = canDepositHuman(humanAmount)
-      if (!gate.ok) throw new Error(gate.message ?? 'Cannot deposit')
+    async (
+      humanAmount: number,
+      opts?: { skipBalanceGate?: boolean },
+    ): Promise<Hash> => {
       if (!address) throw new Error('Wallet required')
       if (!wallet) throw new Error('Wallet required')
+      if (!Number.isFinite(humanAmount) || humanAmount <= 0) {
+        throw new Error('Enter an amount greater than zero.')
+      }
+
+      // After CCTP mint, React Query balance may still be stale — refetch or skip gate.
+      if (opts?.skipBalanceGate) {
+        await refetchBalances()
+      } else {
+        const gate = canDepositHuman(humanAmount)
+        if (!gate.ok) throw new Error(gate.message ?? 'Cannot deposit')
+      }
 
       const amount = humanAmountToUnits(humanAmount, tokenDecimals)
       if (amount <= 0n) throw new Error('Invalid amount')
@@ -608,6 +652,7 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       wallet,
       requireCircleArcGas,
       writeFeeOverrides,
+      contractsChain.id,
     ],
   )
 
@@ -751,10 +796,25 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   )
 
   const submitRepayReceivable = useCallback(
-    async (humanAmount: number, receivableIdBytes32: `0x${string}`): Promise<Hash> => {
-      const gate = canRepayReceivable(humanAmount, receivableIdBytes32)
-      if (!gate.ok) throw new Error(gate.message ?? 'Cannot repay')
+    async (
+      humanAmount: number,
+      receivableIdBytes32: `0x${string}`,
+      opts?: { skipBalanceGate?: boolean },
+    ): Promise<Hash> => {
       if (!accessToken?.trim()) throw new Error('Sign in to submit repayment.')
+      if (!receivableIdBytes32) {
+        throw new Error('This loan is not linked to an on-chain receivable yet.')
+      }
+      if (!Number.isFinite(humanAmount) || humanAmount <= 0) {
+        throw new Error('Enter an amount greater than zero.')
+      }
+
+      if (opts?.skipBalanceGate) {
+        await refetchBalances()
+      } else {
+        const gate = canRepayReceivable(humanAmount, receivableIdBytes32)
+        if (!gate.ok) throw new Error(gate.message ?? 'Cannot repay')
+      }
 
       const amount = humanAmountToUnits(humanAmount, tokenDecimals)
       if (amount <= 0n) throw new Error('Invalid amount')
@@ -794,9 +854,14 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       humanAmount: number,
       receivableIdBytes32: `0x${string}`,
       onPhase?: (phase: MerchantRepayOnChainPhase) => void,
+      opts?: { skipBalanceGate?: boolean },
     ): Promise<Hash> => {
       const amount = humanAmountToUnits(humanAmount, tokenDecimals)
       if (amount <= 0n) throw new Error('Invalid amount')
+
+      if (opts?.skipBalanceGate) {
+        await refetchBalances()
+      }
 
       const allowance = await readPayoutRouterAllowance()
       if (allowance < amount) {
@@ -805,9 +870,15 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
       }
 
       onPhase?.('repaying')
-      return await submitRepayReceivable(humanAmount, receivableIdBytes32)
+      return await submitRepayReceivable(humanAmount, receivableIdBytes32, opts)
     },
-    [approveTokenForRepayment, readPayoutRouterAllowance, submitRepayReceivable, tokenDecimals],
+    [
+      approveTokenForRepayment,
+      readPayoutRouterAllowance,
+      refetchBalances,
+      submitRepayReceivable,
+      tokenDecimals,
+    ],
   )
 
   /** Approve token spending (if needed), then submit repayment via backend servicer. */
@@ -922,6 +993,8 @@ export function useTestnetContracts(opts?: UseTestnetContractsOptions) {
   return {
     chainId,
     accountAddress: address,
+    readAddress,
+    readsEnabled,
     isConnected,
     isCorrectNetwork,
     testnetChain: contractsChain,

@@ -7,11 +7,14 @@ import {
   merchantRepayPaths,
 } from '@/components/dashboard/merchant/repay/repayFlowConfig'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
+import { resolveRepayUsdcSource } from '@/bridge/repayUsdcSourceStorage'
+import { isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import {
   useMerchantRepayLoanContext,
   type MerchantRepayLocationState,
 } from '@/hooks/useMerchantRepayLoanContext'
 import { useMerchantRepaySubmit } from '@/hooks/useMerchantRepaySubmit'
+import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useWallet } from '@/hooks/useWallet'
 import DashboardLayout from '@/layouts/DashboardLayout'
 import { shortWalletDisplay } from '@/utils/shortWalletDisplay'
@@ -24,15 +27,18 @@ const MerchantRepayLoanConfirmationPage = () => {
   const location = useLocation()
   const repayContext = useMerchantRepayLoanContext(receivableId)
   const { shortAddress, address } = useWallet()
+  const contracts = useTestnetContracts()
 
   const state = (location.state ?? {}) as MerchantRepayLocationState
   const paymentAmount = state.paymentAmount ?? 0
+  const usdcSource = resolveRepayUsdcSource(repayContext.loanId || receivableId || '', state.usdcSource)
+  const arcMode = isArcTestnetContractNetwork(contracts.testnetChain.id)
 
   const submit = useMerchantRepaySubmit({
     repayContext,
     paymentAmount,
     receivableName: state.receivableName ?? repayContext.receivableName,
-    usdcSource: state.usdcSource,
+    usdcSource: usdcSource ?? undefined,
   })
 
   const submitBusy = submit.phase !== 'idle'
@@ -59,6 +65,20 @@ const MerchantRepayLoanConfirmationPage = () => {
     )
   }
 
+  // Arc CCTP mode requires a known USDC source (location state or sessionStorage).
+  if (!repayContext.isLoading && arcMode && !usdcSource) {
+    return (
+      <Navigate
+        to={paths.amount}
+        replace
+        state={{
+          receivableName: state.receivableName ?? repayContext.receivableName,
+          paymentAmount,
+        }}
+      />
+    )
+  }
+
   if (repayContext.isLoading) {
     return (
       <DashboardLayout dashboardBasePath="/dashboard/merchant" topBarBreadcrumbs={breadcrumbs}>
@@ -74,6 +94,10 @@ const MerchantRepayLoanConfirmationPage = () => {
   }
 
   const paymentDisplay = paymentAmount.toLocaleString('en-US', { maximumFractionDigits: 2 })
+  const navState: MerchantRepayLocationState = {
+    ...state,
+    usdcSource: usdcSource ?? undefined,
+  }
 
   return (
     <DashboardLayout dashboardBasePath="/dashboard/merchant" topBarBreadcrumbs={breadcrumbs}>
@@ -82,19 +106,26 @@ const MerchantRepayLoanConfirmationPage = () => {
         loadingTitle="Submitting repayment"
         loadingDescription={
           submit.statusMessage ||
-          (state.usdcSource?.requiresBridge
+          (usdcSource?.requiresBridge
             ? 'Bridging USDC to Arc if needed, then processing repayment…'
             : 'Processing your repayment…')
         }
         errorTitle="Unable to submit repayment"
         errorDescription={submit.error ?? undefined}
+        retryLabel={submit.needsReconnect ? 'Reconnect wallet' : 'Try again'}
         onDismiss={() => submit.clearError()}
-        onRetry={() => void submit.submit()}
+        onRetry={() => {
+          if (submit.needsReconnect) {
+            void submit.reconnect()
+            return
+          }
+          void submit.submit()
+        }}
       />
       <div className="max-w-[860px] w-full mx-auto pt-8 pb-6 flex flex-col gap-6">
         <button
           type="button"
-          onClick={() => navigate(paths.amount, { state })}
+          onClick={() => navigate(paths.amount, { state: navState })}
           className="inline-flex items-center gap-2 text-[#6B7488] text-[16px] leading-[20px] hover:underline w-fit"
         >
           <img src={backArrowIcon} alt="" className="h-[20px] w-[20px] object-contain" />
@@ -109,7 +140,7 @@ const MerchantRepayLoanConfirmationPage = () => {
         <MerchantRepayFlowTabs
           activeStep={1}
           onStepSelect={(step) => {
-            if (step === 0) navigate(paths.amount, { state })
+            if (step === 0) navigate(paths.amount, { state: navState })
           }}
         />
 
@@ -123,7 +154,13 @@ const MerchantRepayLoanConfirmationPage = () => {
           submitError={submit.error}
           buttonLabel={submit.buttonLabel}
           submitDisabled={submit.disabled}
-          onSubmit={() => void submit.submit()}
+          onSubmit={() => {
+            if (submit.needsReconnect) {
+              void submit.reconnect()
+              return
+            }
+            void submit.submit()
+          }}
         />
       </div>
     </DashboardLayout>

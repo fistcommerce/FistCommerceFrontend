@@ -7,6 +7,10 @@ type UsdcBalancePickerProps = {
   loading?: boolean
   error?: string | null
   amountHuman?: number
+  /** @deprecated CCTP is allowed under funding hops; kept for call-site compat. */
+  circleSessionLocked?: boolean
+  /** Circle uses a different address per chain — balances may need multi-SCA API support. */
+  circleMultiAddressHint?: boolean
 }
 
 function formatBal(b: BridgeEligibleBalance): string {
@@ -24,10 +28,17 @@ export default function UsdcBalancePicker({
   loading,
   error,
   amountHuman,
+  circleMultiAddressHint,
 }: UsdcBalancePickerProps) {
   return (
     <div className="mt-6 w-full max-w-[520px] mx-auto text-left">
       <p className="text-[#6B7488] text-[13px] font-medium mb-2">Pay with USDC from</p>
+      {circleMultiAddressHint ? (
+        <p className="text-[#6B7488] text-[12px] mb-2">
+          Circle uses a different address on each network. Bridging will switch networks
+          temporarily, then return to Arc for deposit.
+        </p>
+      ) : null}
       {loading ? (
         <p className="text-[#8B92A3] text-[13px]">Loading balances…</p>
       ) : null}
@@ -56,7 +67,9 @@ export default function UsdcBalancePicker({
                   <div>
                     <p className="text-[#0B1220] text-[14px] font-medium">{b.label}</p>
                     <p className="text-[#8B92A3] text-[12px] mt-0.5">
-                      {b.requiresBridge ? 'Bridge to Arc via CCTP, then continue' : 'Already on Arc — no bridge'}
+                      {b.requiresBridge
+                        ? 'Bridge to Arc via CCTP, then continue'
+                        : 'Already on Arc — no bridge'}
                     </p>
                   </div>
                   <div className="text-right shrink-0">

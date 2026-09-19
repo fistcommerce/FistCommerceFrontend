@@ -9,7 +9,7 @@ import { CircleUserRejectedError, isCircleUserRejectedError } from '@/circle/err
 import { authenticateCircleSdk, executeCircleChallenge } from '@/circle/sdk'
 import type { CircleLiveSession } from '@/circle/types'
 import type { AppEthereumProvider, AppWallet } from '@/wallet/appWallet'
-import { getAppChainById } from '@/wallet/appChain'
+import { getCircleSwitchChainById } from '@/circle/chainMap'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import { getAppStore } from '@/store/storeRef'
 
@@ -180,5 +180,5 @@ export function createCircleAppWallet(deps: CircleProviderDeps): AppWallet {
 }
 
 export function circleChainName(chainId: number): string {
-  return getAppChainById(chainId)?.name ?? `chain ${chainId}`
+  return getCircleSwitchChainById(chainId)?.name ?? `chain ${chainId}`
 }

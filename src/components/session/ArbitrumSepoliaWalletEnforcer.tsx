@@ -21,6 +21,7 @@ import {
   getSupportedAppChains,
   isSupportedAppChainId,
 } from '@/wallet/appChain'
+import { isWalletSessionBusy } from '@/wallet/sessionBusy'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { formatWalletChainSwitchError } from '@/wallet/walletChainErrors'
 import { ensureWalletChain } from '@/wallet/viemClients'
@@ -55,6 +56,10 @@ export default function ArbitrumSepoliaWalletEnforcer() {
   const { ready: privyReady, logout } = usePrivy()
   const { wallet, isConnected, address, ready: walletsReady } = useActiveWallet()
   const chainId = useAppSelector((s) => s.wallet.chainId)
+  const writePending = useAppSelector((s) => s.wallet.writePending)
+  const actionPending = useAppSelector((s) => s.wallet.actionPending)
+  const fundingHop = useAppSelector((s) => s.wallet.fundingHop)
+  const sessionBusy = isWalletSessionBusy({ writePending, actionPending, fundingHop })
   const [switchError, setSwitchError] = useState<string | null>(null)
   const [switchingTarget, setSwitchingTarget] = useState<number | null>(null)
   const [choosingWallet, setChoosingWallet] = useState(false)
@@ -98,7 +103,9 @@ export default function ArbitrumSepoliaWalletEnforcer() {
     isConnected &&
     Boolean(address) &&
     chainId != null &&
-    !isSupportedAppChainId(chainId)
+    !isSupportedAppChainId(chainId) &&
+    // Allow temporary CCTP hop chains while bridge/deposit/repay is in flight.
+    !sessionBusy
 
   const showBlockingModal = wrongNetwork && !skipEnforcer
   const switching = switchingTarget != null

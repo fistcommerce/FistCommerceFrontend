@@ -11,16 +11,20 @@ import {
   merchantRepayPaths,
 } from '@/components/dashboard/merchant/repay/repayFlowConfig'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
+import { saveRepayUsdcSource } from '@/bridge/repayUsdcSourceStorage'
 import { isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import {
   useMerchantRepayLoanContext,
   type MerchantRepayLocationState,
 } from '@/hooks/useMerchantRepayLoanContext'
+import { useReconnectSessionWallet } from '@/hooks/useReconnectSessionWallet'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useTokenBalanceLabel } from '@/hooks/useTokenBalanceLabel'
 import { useUsdcBalancePicker } from '@/hooks/useUsdcBalancePicker'
 import { useWallet } from '@/hooks/useWallet'
 import DashboardLayout from '@/layouts/DashboardLayout'
+import { resolveLiveWalletForWrite } from '@/wallet/liveWalletForWrite'
+import { useActiveWallet } from '@/wallet/useActiveWallet'
 import {
   clampMerchantRepayAmount,
   validateMerchantRepayAmount,
@@ -34,6 +38,8 @@ const MerchantRepayLoanPage = () => {
   const repayContext = useMerchantRepayLoanContext(receivableId)
   const locationState = (location.state ?? {}) as MerchantRepayLocationState
   const { shortAddress, address } = useWallet()
+  const { ready, wallet, address: liveAddress } = useActiveWallet()
+  const { reconnect } = useReconnectSessionWallet()
   const contracts = useTestnetContracts()
   const walletTokenBalanceLabel = useTokenBalanceLabel('repay')
 
@@ -48,6 +54,8 @@ const MerchantRepayLoanPage = () => {
     setSelectedChainId,
     loading: balancesLoading,
     error: balancesError,
+    circleSessionLocked,
+    circleMultiAddressHint,
   } = useUsdcBalancePicker({
     purpose: 'repayment',
     amountHuman: amount,
@@ -75,9 +83,23 @@ const MerchantRepayLoanPage = () => {
   }
 
   const handleContinue = () => {
+    const live = resolveLiveWalletForWrite({ ready, wallet, address: liveAddress }, 'repay')
+    if (live.status === 'booting') {
+      setValidationError('Wallet is still connecting. Wait a moment and try again.')
+      return
+    }
+    if (live.status === 'disconnected') {
+      setValidationError(live.message)
+      void reconnect('repay')
+      return
+    }
     const owedError = validateMerchantRepayAmount(amount, repayContext.amountOwedHuman)
     if (owedError) {
       setValidationError(owedError)
+      return
+    }
+    if (bridgePickerEnabled && !selectedUsdc) {
+      setValidationError('Select a USDC balance to fund this repayment.')
       return
     }
     if (selectedUsdc?.sufficient === false) {
@@ -100,21 +122,23 @@ const MerchantRepayLoanPage = () => {
       return
     }
     setValidationError(null)
+    const usdcSource = selectedUsdc
+      ? {
+          chainId: selectedUsdc.chainId,
+          label: selectedUsdc.label,
+          bridgeKitId: selectedUsdc.bridgeKitId,
+          requiresBridge: selectedUsdc.requiresBridge,
+          usdcAddress: selectedUsdc.usdcAddress,
+          usdcDecimals: selectedUsdc.usdcDecimals,
+        }
+      : undefined
+    if (usdcSource) saveRepayUsdcSource(loanId, usdcSource)
     navigate(paths.confirm, {
       state: {
         ...locationState,
         receivableName: repayContext.receivableName,
         paymentAmount: amount,
-        usdcSource: selectedUsdc
-          ? {
-              chainId: selectedUsdc.chainId,
-              label: selectedUsdc.label,
-              bridgeKitId: selectedUsdc.bridgeKitId,
-              requiresBridge: selectedUsdc.requiresBridge,
-              usdcAddress: selectedUsdc.usdcAddress,
-              usdcDecimals: selectedUsdc.usdcDecimals,
-            }
-          : undefined,
+        usdcSource,
       } satisfies MerchantRepayLocationState,
     })
   }
@@ -163,6 +187,8 @@ const MerchantRepayLoanPage = () => {
                 loading={balancesLoading}
                 error={balancesError}
                 amountHuman={amount}
+                circleSessionLocked={circleSessionLocked}
+                circleMultiAddressHint={circleMultiAddressHint}
               />
             ) : null
           }

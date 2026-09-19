@@ -6,7 +6,9 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "serve": "serve -s dist -l 3000"
+    "serve": "serve -s dist -l 3000",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@circle-fin/adapter-viem-v2": "^1.17.1",
@@ -42,7 +44,8 @@
     "postcss": "^8.5.8",
     "tailwindcss": "^4.2.2",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "vitest": "^3.2.4"
   },
   "overrides": {
     "ox": "0.14.17"

@@ -13,8 +13,8 @@ import {
   APP_CHAIN,
   DEFAULT_APP_CHAIN,
   getAppChainById,
-  isSupportedAppChainId,
 } from '@/wallet/appChain'
+import { getWalletSwitchChainById } from '@/bridge/cctpSourceChains'
 import { syncWalletChainIdFromProviderToRedux } from '@/wallet/syncWalletChainToRedux'
 import {
   isChainAlreadyAddedError,
@@ -152,7 +152,7 @@ async function switchWithOptionalAdd(
         true,
       )
     }
-    if (isSupportedAppChainId(chainId) && shouldTryAddEthereumChain(e)) {
+    if (getWalletSwitchChainById(chainId) && shouldTryAddEthereumChain(e)) {
       try {
         await requestAddChain(provider, chain)
         await requestSwitchChain(provider, chainId)
@@ -182,8 +182,16 @@ function hasFistSessionTokens(): boolean {
   }
 }
 
+function isFundingHopActive(): boolean {
+  try {
+    return Boolean(getAppStore()?.getState()?.wallet?.fundingHop?.active)
+  } catch {
+    return false
+  }
+}
+
 export async function ensureWalletChain(wallet: AppWallet, chainId: number): Promise<void> {
-  const chain = getAppChainById(chainId)
+  const chain = getWalletSwitchChainById(chainId)
   if (!chain) {
     throw new WalletChainSwitchError(`Unsupported chain id ${chainId}.`, new Error('unsupported_chain'))
   }
@@ -201,7 +209,8 @@ export async function ensureWalletChain(wallet: AppWallet, chainId: number): Pro
   }
 
   if (isCircleAppWallet(wallet)) {
-    if (hasFistSessionTokens()) {
+    // Address-changing Circle switches are allowed only during deposit-scoped funding hops.
+    if (hasFistSessionTokens() && !isFundingHopActive()) {
       throw new WalletChainSwitchError(
         `Circle Wallet uses a different address on ${chain.name}. Sign in again on that network to continue.`,
         new Error('circle_address_change'),
@@ -222,7 +231,7 @@ export async function ensureWalletChain(wallet: AppWallet, chainId: number): Pro
   try {
     await verifyProviderChain(provider, chainId, chain.name)
   } catch (verifyErr) {
-    if (isSupportedAppChainId(chainId)) {
+    if (getWalletSwitchChainById(chainId)) {
       try {
         await requestAddChain(provider, chain)
         await requestSwitchChain(provider, chainId)

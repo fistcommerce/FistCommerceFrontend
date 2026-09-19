@@ -19,7 +19,12 @@ import {
   postCircleSocialToken,
   postCircleUserTokenRefresh,
 } from '@/circle/api'
-import { isCircleSupportedChainId } from '@/circle/chainMap'
+import {
+  getCircleSwitchChainById,
+  isCircleLoginChainId,
+  isCircleSupportedChainId,
+} from '@/circle/chainMap'
+import { isFundingHopActiveFromStore } from '@/wallet/sessionBusy'
 import {
   circleWalletUnavailableReason,
   getCircleAppId,
@@ -58,9 +63,14 @@ import type {
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import { isLocalOnlyDeployMode } from '@/contract_config/contractNetwork'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
-import { setWalletActionPending, setWalletWritePending } from '@/store/slices/walletSlice'
+import { selectIsPersistReady } from '@/store/selectors/sessionSelectors'
+import {
+  endFundingHop,
+  setWalletActionPending,
+  setWalletFromProvider,
+  setWalletWritePending,
+} from '@/store/slices/walletSlice'
 import type { AppWallet } from '@/wallet/appWallet'
-import { getAppChainById } from '@/wallet/appChain'
 import { WalletChainSwitchError } from '@/wallet/walletChainErrors'
 
 type CircleWalletContextValue = {
@@ -112,32 +122,56 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
   const dispatch = useAppDispatch()
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const authChainId = useAppSelector((s) => s.auth.chainId)
+  const persistReady = useAppSelector(selectIsPersistReady)
   const [session, setSession] = useState<CircleLiveSession | null>(null)
   const [ready, setReady] = useState(false)
   const [actionPending, setActionPending] = useState(false)
   const sessionRef = useRef<CircleLiveSession | null>(null)
   sessionRef.current = session
 
-  const persist = useCallback((next: CircleLiveSession | null) => {
-    sessionRef.current = next
-    setSession(next)
-    if (!next) {
-      clearCircleClientState()
-      resetCircleSdk()
-      return
-    }
-    writeCircleSecrets({
-      userToken: next.userToken,
-      encryptionKey: next.encryptionKey,
-      appId: next.appId,
-      refreshToken: next.refreshToken ?? null,
-    })
-    writeCircleWalletRef({
-      walletId: next.walletId,
-      address: next.address,
-      chainId: next.chainId,
-    })
-  }, [])
+  // Clear stuck hop/busy flags after refresh / HMR so balance reads and UI are not gated.
+  useEffect(() => {
+    dispatch(endFundingHop())
+    dispatch(setWalletActionPending(false))
+    dispatch(setWalletWritePending(false))
+  }, [dispatch])
+
+  const persist = useCallback(
+    (next: CircleLiveSession | null) => {
+      sessionRef.current = next
+      setSession(next)
+      if (!next) {
+        clearCircleClientState()
+        resetCircleSdk()
+        return
+      }
+      writeCircleSecrets({
+        userToken: next.userToken,
+        encryptionKey: next.encryptionKey,
+        appId: next.appId,
+        refreshToken: next.refreshToken ?? null,
+      })
+      writeCircleWalletRef({
+        walletId: next.walletId,
+        address: next.address,
+        chainId: next.chainId,
+      })
+      // Mirror into Redux immediately so balance reads / session selectors do not wait
+      // on WalletReduxSync's async provider poll.
+      try {
+        dispatch(
+          setWalletFromProvider({
+            isConnected: true,
+            address: next.address,
+            chainId: next.chainId,
+          }),
+        )
+      } catch {
+        /* store may be unavailable in tests */
+      }
+    },
+    [dispatch],
+  )
 
   const withPending = useCallback(
     async <T,>(fn: () => Promise<T>): Promise<T> => {
@@ -151,8 +185,15 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
         throw e
       } finally {
         setActionPending(false)
-        dispatch(setWalletActionPending(false))
+        // Do not clear actionPending while an outer funding hop is active
+        // (Circle switch nests inside CCTP and would otherwise stomp the busy gate).
+        // Always clear this call's writePending — hop busy is fundingHop + actionPending.
         dispatch(setWalletWritePending(false))
+        if (isFundingHopActiveFromStore()) {
+          dispatch(setWalletActionPending(true))
+        } else {
+          dispatch(setWalletActionPending(false))
+        }
       }
     },
     [dispatch],
@@ -176,7 +217,12 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
     ): Promise<CircleLiveSession> => {
       await authenticateCircleSdk(secrets)
       let wallet: CircleWalletRecord
-      if (existing?.address) {
+      const existingMatchesTarget =
+        Boolean(existing?.address) &&
+        existing != null &&
+        Number.isFinite(existing.chainId) &&
+        Math.trunc(existing.chainId) === Math.trunc(chainId)
+      if (existingMatchesTarget && existing) {
         wallet = assertEoa(existing)
       } else {
         try {
@@ -206,6 +252,11 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
           }
         }
       }
+      if (!isCircleSupportedChainId(wallet.chainId) && !isCircleSupportedChainId(chainId)) {
+        throw new Error('Circle Wallet is on an unsupported network.')
+      }
+      // Normalize to the requested chain — ensure-wallet is chain-scoped; API records can drift.
+      wallet = { ...wallet, chainId: Math.trunc(chainId) }
       if (!isCircleSupportedChainId(wallet.chainId)) {
         throw new Error('Circle Wallet is on an unsupported network.')
       }
@@ -256,8 +307,8 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
     async (chainId: number, method: CircleAuthMethod, options?: CircleConnectOptions) => {
       const blocked = circleWalletUnavailableReason()
       if (blocked) throw new Error(blocked)
-      if (!isCircleSupportedChainId(chainId)) {
-        throw new Error('Circle Wallet does not support this network.')
+      if (!isCircleLoginChainId(chainId)) {
+        throw new Error('Circle Wallet login is only available on supported Fist networks.')
       }
       if (!isCircleAuthMethodConfigured(method)) {
         throw new Error(`Circle ${method} login is not configured in this environment.`)
@@ -369,12 +420,23 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
       const current = sessionRef.current
       if (!current) throw new Error('Connect Circle Wallet first.')
       if (current.chainId === chainId) return
-      const chain = getAppChainById(chainId)
+      const chain = getCircleSwitchChainById(chainId)
       if (!chain || !isCircleSupportedChainId(chainId)) {
         throw new WalletChainSwitchError(`Unsupported chain id ${chainId}.`, new Error('unsupported_chain'))
       }
+      // Hop chains are never Fist login chains — only allow under fundingHop / explicit allow.
+      if (!isCircleLoginChainId(chainId) && !opts?.allowAddressChange && !isFundingHopActiveFromStore()) {
+        throw new WalletChainSwitchError(
+          `Circle Wallet cannot switch to ${chain.name} outside a funding flow.`,
+          new Error('circle_hop_locked'),
+          false,
+        )
+      }
       const hasFistSession = isUsableApiAccessToken(accessToken)
-      const allow = opts?.allowAddressChange === true || !hasFistSession
+      const allow =
+        opts?.allowAddressChange === true ||
+        isFundingHopActiveFromStore() ||
+        !hasFistSession
       if (!allow) {
         throw new WalletChainSwitchError(
           `Circle Wallet uses a different address on ${chain.name}. Sign in again on that network to continue.`,
@@ -407,6 +469,14 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
     let cancelled = false
     const settle = () => {
       if (!cancelled) setReady(true)
+    }
+
+    // Wait for redux-persist so accessToken / authChainId are real before restoring.
+    if (!persistReady) {
+      setReady(false)
+      return () => {
+        cancelled = true
+      }
     }
 
     void (async () => {
@@ -453,6 +523,30 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
 
         const ref = readCircleWalletRef()
         const secrets = readCircleSecrets()
+
+        const healToAuthLoginChain = async (
+          nextSecrets: {
+            userToken: string
+            encryptionKey: string
+            appId: string
+            refreshToken?: string | null
+          },
+          authMethod?: CircleAuthMethod | string | null,
+        ) => {
+          if (cancelled) return
+          if (!isUsableApiAccessToken(accessToken) || authChainId == null) return
+          if (!isCircleLoginChainId(authChainId)) return
+          const live = sessionRef.current
+          if (!live || live.chainId === authChainId) return
+          try {
+            await applyWallet(nextSecrets, authChainId, null, authMethod ?? live.authMethod)
+          } catch (e) {
+            if (import.meta.env.DEV) {
+              console.warn('[CircleWallet] heal to auth chain failed; keeping current session', e)
+            }
+          }
+        }
+
         if (isUsableApiAccessToken(accessToken) && accessToken) {
           try {
             const refreshed = await postCircleSessionRefresh({
@@ -466,9 +560,21 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
               appId: refreshed.appId || getCircleAppId(),
               refreshToken: refreshed.refreshToken,
             }
-            const chainId = refreshed.wallet?.chainId ?? authChainId ?? ref?.chainId
+            const preferredAuthChain =
+              authChainId != null && isCircleLoginChainId(authChainId) ? authChainId : null
+            const chainId =
+              preferredAuthChain ??
+              refreshed.wallet?.chainId ??
+              authChainId ??
+              ref?.chainId
             if (chainId == null) return
-            await applyWallet(nextSecrets, chainId, refreshed.wallet, refreshed.authMethod)
+            const existing =
+              refreshed.wallet &&
+              Math.trunc(refreshed.wallet.chainId) === Math.trunc(chainId)
+                ? refreshed.wallet
+                : null
+            await applyWallet(nextSecrets, chainId, existing, refreshed.authMethod)
+            await healToAuthLoginChain(nextSecrets, refreshed.authMethod)
             return
           } catch {
             /* try Circle refreshToken or cached secrets */
@@ -483,18 +589,18 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
               accessToken,
             })
             if (cancelled) return
-            const chainId = ref?.chainId ?? authChainId
+            const nextSecrets = {
+              userToken: refreshed.userToken,
+              encryptionKey: refreshed.encryptionKey || secrets.encryptionKey,
+              appId: refreshed.appId || secrets.appId || getCircleAppId(),
+              refreshToken: refreshed.refreshToken,
+            }
+            const preferredAuthChain =
+              authChainId != null && isCircleLoginChainId(authChainId) ? authChainId : null
+            const chainId = preferredAuthChain ?? ref?.chainId ?? authChainId
             if (chainId == null) return
-            await applyWallet(
-              {
-                userToken: refreshed.userToken,
-                encryptionKey: refreshed.encryptionKey || secrets.encryptionKey,
-                appId: refreshed.appId || secrets.appId || getCircleAppId(),
-                refreshToken: refreshed.refreshToken,
-              },
-              chainId,
-              null,
-            )
+            await applyWallet(nextSecrets, chainId, null)
+            await healToAuthLoginChain(nextSecrets)
             return
           } catch {
             /* fall through */
@@ -502,10 +608,28 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
         }
 
         if (secrets && ref) {
-          await applyWallet(secrets, ref.chainId)
+          const bootChain =
+            authChainId != null && isCircleLoginChainId(authChainId) ? authChainId : ref.chainId
+          const existing =
+            Math.trunc(ref.chainId) === Math.trunc(bootChain)
+              ? {
+                  walletId: ref.walletId,
+                  address: ref.address,
+                  chainId: ref.chainId,
+                  accountType: 'EOA' as const,
+                  blockchain: '',
+                }
+              : null
+          await applyWallet(secrets, bootChain, existing)
+          await healToAuthLoginChain(secrets)
         }
-      } catch {
-        persist(null)
+      } catch (e) {
+        // Do not wipe an already-restored session on a later auth-token refresh failure.
+        if (!sessionRef.current) {
+          persist(null)
+        } else if (import.meta.env.DEV) {
+          console.warn('[CircleWallet] restore error with existing session kept', e)
+        }
       } finally {
         settle()
       }
@@ -514,8 +638,7 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [accessToken, applyWallet, authChainId, finishWithCredentials, persist, persistReady])
 
   const wallet = useMemo(() => {
     if (!session) return null
@@ -525,7 +648,12 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
         if (!current) throw new Error('Circle Wallet is disconnected.')
         return current
       },
-      switchChain: (chainId) => switchChainRef.current(chainId),
+      switchChain: (chainId) =>
+        switchChainRef.current(chainId, {
+          // Provider-driven switches during CCTP set fundingHop; allowAddressChange
+          // is also granted when fundingHop.active inside switchChain.
+          allowAddressChange: isFundingHopActiveFromStore(),
+        }),
       onDisconnect: disconnect,
     })
   }, [session, disconnect])

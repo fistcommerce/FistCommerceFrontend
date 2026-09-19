@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import UsdcBalancePicker from '@/components/bridge/UsdcBalancePicker'
@@ -18,8 +18,14 @@ import InvestmentPoolSelectionStep from '@/components/dashboard/investor/invest/
 import { InvestmentStep } from '@/components/dashboard/investor/invest/types'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import { ensureArcUsdcForAction } from '@/bridge/ensureArcUsdc'
+import {
+  resolveOriginatingChainId,
+  restoreWalletChainIfSafe,
+} from '@/bridge/restoreWalletChain'
+import { withBridgeSessionBusy } from '@/bridge/withBridgeSessionBusy'
 import { getAppChainDisplayName, isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
+import { useReconnectSessionWallet } from '@/hooks/useReconnectSessionWallet'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useUsdcBalancePicker } from '@/hooks/useUsdcBalancePicker'
 import { useAppSelector } from '@/store/hooks'
@@ -29,6 +35,12 @@ import {
   filterQuickAmountsByMax,
   validateInvestDepositAmount,
 } from '@/utils/investorFlowAmountLimits'
+import {
+  isLiveWalletDisconnectedMessage,
+  resolveLiveWalletForWrite,
+  waitForLiveWallet,
+  type LiveWalletSnapshot,
+} from '@/wallet/liveWalletForWrite'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 
 interface InvestorInvestCardProps {
@@ -40,6 +52,7 @@ interface InvestorInvestCardProps {
 type InvestFlowFailure = {
   message: string
   returnStep: InvestmentStep
+  kind?: 'reconnect' | 'submit'
 }
 
 const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInvestCardProps) => {
@@ -65,9 +78,15 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     estimateDepositHumanAmount:
       currentStep === InvestmentStep.InvestmentConfirmation ? displayAmount : undefined,
   })
-  const { wallet, address } = useActiveWallet()
+  const { wallet, address, ready, isConnected } = useActiveWallet()
+  const { reconnect, pending: reconnectPending } = useReconnectSessionWallet()
   const accessToken = useAppSelector((s) => s.auth?.accessToken ?? null)
-  const { investmentBalanceDisplay, walletBalanceDisplay, walletBalanceHuman } = useInvestorOnChainBalances()
+  const authChainId = useAppSelector((s) => s.auth?.chainId ?? null)
+  const walletChainId = useAppSelector((s) => s.wallet?.chainId)
+  const { investmentBalanceDisplay, walletBalanceDisplay, walletBalanceHuman } =
+    useInvestorOnChainBalances()
+  const liveRef = useRef<LiveWalletSnapshot>({ ready, wallet, address })
+  liveRef.current = { ready, wallet, address }
 
   const bridgePickerEnabled =
     isArcTestnetContractNetwork(contracts.testnetChain.id) &&
@@ -75,16 +94,24 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
 
   const {
     balances: usdcBalances,
+    bridgeConfig,
     selected: selectedUsdc,
     selectedChainId,
     setSelectedChainId,
     selectedBalanceHuman,
     loading: balancesLoading,
     error: balancesError,
+    circleSessionLocked,
+    circleMultiAddressHint,
   } = useUsdcBalancePicker({
     purpose: 'deposit',
     amountHuman: displayAmount,
-    enabled: bridgePickerEnabled,
+    // Keep selection + config warm through confirm (picker UI only on amount step).
+    enabled:
+      isArcTestnetContractNetwork(contracts.testnetChain.id) &&
+      (currentStep === InvestmentStep.AmountEntry ||
+        currentStep === InvestmentStep.PoolSelection ||
+        currentStep === InvestmentStep.InvestmentConfirmation),
   })
 
   const effectiveMaxHuman =
@@ -113,19 +140,43 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     if (currentStep !== InvestmentStep.FlowFailure) setFlowFailure(null)
   }, [currentStep])
 
-  const openFlowFailure = (source: unknown, returnStep: InvestmentStep) => {
+  const openFlowFailure = (
+    source: unknown,
+    returnStep: InvestmentStep,
+    kind: InvestFlowFailure['kind'] = 'submit',
+  ) => {
     const message = toAppUserFacingError(source, {
       fallback: 'Something went wrong. Please try again.',
       context: 'invest',
     })
-    setFlowFailure({ message, returnStep })
+    const failureKind =
+      kind === 'reconnect' || isLiveWalletDisconnectedMessage(message) ? 'reconnect' : kind
+    setFlowFailure({ message, returnStep, kind: failureKind })
     setFeedbackError(message)
     setFeedbackPhase('failed')
     setStep(returnStep)
   }
 
+  const requireLiveWallet = (returnStep: InvestmentStep): boolean => {
+    const live = resolveLiveWalletForWrite(liveRef.current, 'invest')
+    if (live.status === 'booting') {
+      openFlowFailure(
+        'Wallet is still connecting. Wait a moment and try again.',
+        returnStep,
+        'reconnect',
+      )
+      return false
+    }
+    if (live.status === 'disconnected') {
+      openFlowFailure(live.message, returnStep, 'reconnect')
+      return false
+    }
+    return true
+  }
+
   const walletMockTokenLabel = useMemo(() => {
     const networkName = getAppChainDisplayName(contracts.testnetChain.id)
+    if (!ready) return `Connecting wallet… (${networkName})`
     if (!contracts.isConnected) return `Connect your wallet to view token balance (${networkName}).`
     if (contracts.isContractsLoading) return 'Loading balance…'
     if (!contracts.isCorrectNetwork) {
@@ -137,16 +188,17 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     contracts.isContractsLoading,
     contracts.isCorrectNetwork,
     contracts.testnetChain.id,
+    ready,
     walletBalanceDisplay,
   ])
 
   const handlePoolContinue = () => {
+    if (!requireLiveWallet(InvestmentStep.PoolSelection)) return
     const uiError = validateInvestDepositAmount(displayAmount, effectiveMaxHuman)
     if (uiError) {
       openFlowFailure(uiError, InvestmentStep.PoolSelection)
       return
     }
-    // When funding from a CCTP source, Arc balance may be low until bridge completes at confirm.
     if (!selectedUsdc?.requiresBridge) {
       const gate = contracts.canDepositHuman(displayAmount)
       if (!gate.ok) {
@@ -158,6 +210,7 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
   }
 
   const handleAmountContinue = () => {
+    if (!requireLiveWallet(InvestmentStep.AmountEntry)) return
     const uiError = validateInvestDepositAmount(displayAmount, effectiveMaxHuman)
     if (uiError) {
       openFlowFailure(uiError, InvestmentStep.AmountEntry)
@@ -184,27 +237,63 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     setAmount(value)
   }
 
+  const handleReconnect = async (returnStep: InvestmentStep) => {
+    setFeedbackPhase('loading')
+    setFeedbackError(null)
+    const result = await reconnect('invest')
+    if (result.status === 'navigated') return
+    if (result.status === 'connected') {
+      setFeedbackPhase('idle')
+      setFlowFailure(null)
+      return
+    }
+    openFlowFailure(result.message, returnStep, 'reconnect')
+  }
+
   const handleInvestConfirm = async () => {
     setInvestSubmitting(true)
     setFeedbackPhase('loading')
     setFeedbackError(null)
+    const originatingChainId = resolveOriginatingChainId({
+      authChainId,
+      walletChainId,
+    })
     try {
-      if (!wallet || !address) throw new Error('Connect your wallet to invest.')
-      if (isArcTestnetContractNetwork(contracts.testnetChain.id)) {
-        if (!accessToken?.trim()) throw new Error('Sign in to continue.')
-        if (!selectedUsdc) throw new Error('Select a USDC balance to fund this deposit.')
-        await ensureArcUsdcForAction({
-          accessToken,
-          wallet,
-          walletAddress: address,
-          amountHuman: displayAmount,
-          purpose: 'deposit',
-          selected: selectedUsdc,
-        })
+      const live = await waitForLiveWallet(() => liveRef.current, { action: 'invest' })
+      if (live.status !== 'ready') {
+        openFlowFailure(
+          live.status === 'disconnected' ? live.message : 'Reconnect the wallet used for this session to invest.',
+          InvestmentStep.InvestmentConfirmation,
+          'reconnect',
+        )
+        return
       }
-      await contracts.depositFundingPool(displayAmount)
-      setFeedbackPhase('idle')
-      setStep(InvestmentStep.InvestmentCompleted)
+      await withBridgeSessionBusy(async () => {
+        try {
+          let bridged = false
+          if (isArcTestnetContractNetwork(contracts.testnetChain.id)) {
+            if (!accessToken?.trim()) throw new Error('Sign in to continue.')
+            if (!selectedUsdc) throw new Error('Select a USDC balance to fund this deposit.')
+            const result = await ensureArcUsdcForAction({
+              accessToken,
+              wallet: live.wallet,
+              walletAddress: live.address,
+              amountHuman: displayAmount,
+              purpose: 'deposit',
+              selected: selectedUsdc,
+              bridgeConfig,
+            })
+            bridged = result.bridged || result.skippedBridge
+          }
+          await contracts.depositFundingPool(displayAmount, {
+            skipBalanceGate: bridged,
+          })
+          setFeedbackPhase('idle')
+          setStep(InvestmentStep.InvestmentCompleted)
+        } finally {
+          await restoreWalletChainIfSafe(live.wallet, originatingChainId)
+        }
+      })
     } catch (e) {
       openFlowFailure(e, InvestmentStep.InvestmentConfirmation)
     } finally {
@@ -212,10 +301,22 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     }
   }
 
+  const needsReconnect = Boolean(
+    flowFailure?.kind === 'reconnect' || isLiveWalletDisconnectedMessage(feedbackError),
+  )
+  const confirmBusy = investSubmitting || contracts.isWritePending || reconnectPending
+  const confirmLabel = confirmBusy
+    ? reconnectPending
+      ? 'Connecting wallet…'
+      : 'Confirm in wallet…'
+    : !ready
+      ? 'Connecting wallet…'
+      : !isConnected
+        ? 'Reconnect wallet'
+        : 'Invest Funds'
+
   const activeFeedbackPhase =
-    investSubmitting || contracts.isWritePending
-      ? 'loading'
-      : feedbackPhase
+    investSubmitting || contracts.isWritePending || reconnectPending ? 'loading' : feedbackPhase
 
   const renderInvestmentStep = () => {
     switch (currentStep) {
@@ -235,8 +336,17 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
                 chainId: contracts.testnetChain.id,
               },
             )}
-            isSubmitting={investSubmitting || contracts.isWritePending}
-            onInvest={handleInvestConfirm}
+            isSubmitting={confirmBusy}
+            submitDisabled={confirmBusy || !ready}
+            submitLabel={confirmLabel}
+            onInvest={() => {
+              if (!ready) return
+              if (!isConnected) {
+                void handleReconnect(InvestmentStep.InvestmentConfirmation)
+                return
+              }
+              void handleInvestConfirm()
+            }}
           />
         )
 
@@ -284,6 +394,8 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
                   loading={balancesLoading}
                   error={balancesError}
                   amountHuman={displayAmount}
+                  circleSessionLocked={circleSessionLocked}
+                  circleMultiAddressHint={circleMultiAddressHint}
                 />
               ) : null
             }
@@ -296,23 +408,34 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     <>
       <DashboardRequestFeedbackLayer
         phase={activeFeedbackPhase}
-        loadingTitle="Submitting investment"
-        loadingDescription="If needed we bridge USDC to Arc, then confirm the deposit in your wallet…"
+        loadingTitle={reconnectPending ? 'Connecting wallet' : 'Submitting investment'}
+        loadingDescription={
+          reconnectPending
+            ? 'Reconnect the wallet used for this session…'
+            : 'If needed we bridge USDC to Arc, then confirm the deposit in your wallet…'
+        }
         errorTitle="Unable to complete investment"
         errorDescription={feedbackError ?? flowFailure?.message}
+        retryLabel={needsReconnect ? 'Reconnect wallet' : 'Try again'}
         onDismiss={() => {
           setFeedbackPhase('idle')
           setFeedbackError(null)
           setFlowFailure(null)
         }}
         onRetry={() => {
+          const returnStep = flowFailure?.returnStep
+          const reconnectRetry = needsReconnect
           setFeedbackPhase('idle')
           setFeedbackError(null)
-          if (flowFailure?.returnStep === InvestmentStep.InvestmentConfirmation) {
+          if (reconnectRetry) {
+            void handleReconnect(returnStep ?? currentStep)
+            return
+          }
+          if (returnStep === InvestmentStep.InvestmentConfirmation) {
             void handleInvestConfirm()
             return
           }
-          if (flowFailure?.returnStep) setStep(flowFailure.returnStep)
+          if (returnStep) setStep(returnStep)
         }}
       />
       {renderInvestmentStep()}

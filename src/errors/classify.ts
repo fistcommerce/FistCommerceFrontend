@@ -335,6 +335,13 @@ function classifySharedFromText(t: string): ClassifiedAppError | null {
   if (/user rejected|user denied|rejected the request|ACTION_REJECTED|4001|cancelled the request in your wallet/i.test(t)) {
     return codeResult('WALLET_REJECTED', t)
   }
+  if (
+    /connect your wallet to (invest|repay|continue|withdraw)|reconnect the wallet used for this session/i.test(
+      t,
+    )
+  ) {
+    return { code: 'WALLET_NOT_CONNECTED', message: t, raw: t }
+  }
 
   if (/deposits?[\s_]*paused|DepositsPaused/i.test(t)) {
     return codeResult('DEPOSITS_PAUSED', t)
@@ -417,6 +424,20 @@ function classifySharedFromText(t: string): ClassifiedAppError | null {
   }
   if (/Fund this Circle wallet with Arc Testnet USDC/i.test(t) || /CIRCLE_ARC_GAS/i.test(t)) {
     return codeResult('CIRCLE_ARC_GAS', t)
+  }
+  if (
+    /Circle Wallet cannot bridge from/i.test(t) ||
+    /Could not bridge USDC with Circle Wallet/i.test(t) ||
+    /CIRCLE_BRIDGE_HOP_FAILED/i.test(t) ||
+    /CIRCLE_BRIDGE_LOCKED/i.test(t)
+  ) {
+    return codeResult('CIRCLE_BRIDGE_HOP_FAILED', t)
+  }
+  if (
+    /is not an accepted funding source/i.test(t) ||
+    /BRIDGE_SOURCE_NOT_ACCEPTED/i.test(t)
+  ) {
+    return codeResult('BRIDGE_SOURCE_NOT_ACCEPTED', t)
   }
   if (isInsufficientNativeGasText(t)) {
     return codeResult('INSUFFICIENT_NATIVE', t)

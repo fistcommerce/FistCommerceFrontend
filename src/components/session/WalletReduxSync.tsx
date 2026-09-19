@@ -15,6 +15,7 @@ import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import type { AppDispatch } from '@/store'
 import { patchAuth } from '@/store/slices/authSlice'
 import { setWalletFromProvider } from '@/store/slices/walletSlice'
+import { isWalletSessionBusy } from '@/wallet/sessionBusy'
 import { syncWalletChainIdFromProviderToRedux } from '@/wallet/syncWalletChainToRedux'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import type { SessionEndReason } from '@/session/sessionEnd'
@@ -176,7 +177,8 @@ export default function WalletReduxSync() {
   const sessionWallet = useAppSelector((s) => s.auth.wallet)
   const writePending = useAppSelector((s) => s.wallet.writePending)
   const actionPending = useAppSelector((s) => s.wallet.actionPending)
-  const sessionBusy = writePending || actionPending
+  const fundingHop = useAppSelector((s) => s.wallet.fundingHop)
+  const sessionBusy = isWalletSessionBusy({ writePending, actionPending, fundingHop })
   const wasConnected = useRef(false)
   const lastAddress = useRef<string | null>(null)
   const lastSource = useRef<string | null>(null)
@@ -268,7 +270,8 @@ export default function WalletReduxSync() {
         const next = addressRef.current
         if (!next) return
         const state = store.getState()
-        if (state.wallet.writePending || state.wallet.actionPending) return
+        if (state.wallet.writePending || state.wallet.actionPending || state.wallet.fundingHop?.active)
+          return
         if (sameWalletAddress(next, state.auth.wallet)) return
         resetWalletAppSessionAndRedirect(dispatch, 'wallet_changed')
       }, WALLET_CHANGED_LOGOUT_MS)
@@ -384,7 +387,8 @@ export default function WalletReduxSync() {
       if (state.auth.chainId == null) return
       if (state.wallet.chainId == null) return
       if (state.wallet.chainId === state.auth.chainId) return
-      if (state.wallet.writePending || state.wallet.actionPending) return
+      if (state.wallet.writePending || state.wallet.actionPending || state.wallet.fundingHop?.active)
+        return
       lastBoundChainRef.current = null
       resetWalletAppSessionAndRedirect(dispatch, 'chain_mismatch')
     }, CHAIN_MISMATCH_LOGOUT_MS)

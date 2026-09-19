@@ -6,6 +6,8 @@ interface InvestmentConfirmationStepProps {
   warningText: string
   reviewRows: InvestmentReviewRow[]
   isSubmitting?: boolean
+  submitDisabled?: boolean
+  submitLabel?: string
   onInvest: () => void | Promise<void>
 }
 
@@ -19,6 +21,8 @@ const InvestmentConfirmationStep = ({
   warningText,
   reviewRows,
   isSubmitting = false,
+  submitDisabled = false,
+  submitLabel,
   onInvest,
 }: InvestmentConfirmationStepProps) => {
   return (
@@ -58,10 +62,10 @@ const InvestmentConfirmationStep = ({
       <button
         type="button"
         onClick={() => void onInvest()}
-        disabled={isSubmitting}
+        disabled={isSubmitting || submitDisabled}
         className="w-full rounded-[6px] bg-[#195EBC] text-white text-[18px] font-medium h-[50px] hover:bg-[#154a9a] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        {isSubmitting ? 'Confirm in wallet…' : 'Invest Funds'}
+        {submitLabel ?? (isSubmitting ? 'Confirm in wallet…' : 'Invest Funds')}
       </button>
     </>
   )

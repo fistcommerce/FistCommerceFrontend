@@ -71,6 +71,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
   const { wallet, isConnected } = useActiveWallet()
   const circle = useCircleWallet()
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
+  const fundingHopActive = useAppSelector((s) => Boolean(s.wallet.fundingHop?.active))
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const refreshToken = useAppSelector((s) => s.auth.refreshToken)
   const [switching, setSwitching] = useState(false)
@@ -108,7 +109,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
 
   const select = useCallback(
     async (choice: NetworkChoice) => {
-      if (switching) return
+      if (switching || fundingHopActive) return
       if (isLocalOnlyDeployMode()) return
       setError(null)
       writePreferredNetwork(choice)
@@ -125,7 +126,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
 
       await applyChoice(choice, true)
     },
-    [applyChoice, circleConnected, hasFistSession, isConnected, switching, wallet, walletChainId],
+    [applyChoice, circleConnected, fundingHopActive, hasFistSession, isConnected, switching, wallet, walletChainId],
   )
 
   const confirmCircleNetworkChange = useCallback(async () => {
@@ -166,7 +167,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
           <button
             key={choice}
             type="button"
-            disabled={switching}
+            disabled={switching || fundingHopActive}
             aria-pressed={active === choice}
             onClick={() => void select(choice)}
             className={`${btnBase} rounded-[6px] ${active === choice ? activeBtn : idleBtn}`}
