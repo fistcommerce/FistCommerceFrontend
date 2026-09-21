@@ -107,7 +107,7 @@ const MerchantRepayLoanConfirmationPage = () => {
         loadingDescription={
           submit.statusMessage ||
           (usdcSource?.requiresBridge
-            ? 'Bridging USDC to Arc if needed, then processing repayment…'
+            ? 'Confirm the burn in your wallet. After that you can leave — Circle mints on Arc in the background.'
             : 'Processing your repayment…')
         }
         errorTitle="Unable to submit repayment"

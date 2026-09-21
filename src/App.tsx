@@ -33,6 +33,7 @@ import MerchantLoanDetailPage from './pages/MerchantLoanDetailPage'
 import InvestorLendingPoolDetailPage from './pages/InvestorLendingPoolDetailPage'
 import InvestorLendingPoolHowItWorksPage from './pages/InvestorLendingPoolHowItWorksPage'
 import InvestorInvestWithdrawPage from './pages/InvestorInvestWithdrawPage'
+import BridgeActivityPage from '@/pages/BridgeActivityPage'
 import InvestorProfileOverviewPage from './pages/InvestorProfileOverviewPage'
 import InvestorProfileOverviewTabContent from '@/components/dashboard/investor/profile/InvestorProfileOverviewTabContent'
 import InvestorProfileWalletsTabContent from '@/components/dashboard/investor/profile/InvestorProfileWalletsTabContent'
@@ -301,6 +302,22 @@ const router = createBrowserRouter([
             ],
           },
           {
+            path: 'bridge/:transferId',
+            element: (
+              <KycFinancialRoutesGuard>
+                <BridgeActivityPage role="investor" />
+              </KycFinancialRoutesGuard>
+            ),
+          },
+          {
+            path: 'bridge',
+            element: (
+              <KycFinancialRoutesGuard>
+                <BridgeActivityPage role="investor" />
+              </KycFinancialRoutesGuard>
+            ),
+          },
+          {
             path: 'lending-pool/:poolSlug/how-it-works',
             element: <InvestorLendingPoolHowItWorksPage />,
           },
@@ -458,6 +475,22 @@ const router = createBrowserRouter([
           {
             path: 'opportunities',
             element: <MerchantDashboardPage />,
+          },
+          {
+            path: 'bridge/:transferId',
+            element: (
+              <KycFinancialRoutesGuard>
+                <BridgeActivityPage role="merchant" />
+              </KycFinancialRoutesGuard>
+            ),
+          },
+          {
+            path: 'bridge',
+            element: (
+              <KycFinancialRoutesGuard>
+                <BridgeActivityPage role="merchant" />
+              </KycFinancialRoutesGuard>
+            ),
           },
           {
             path: 'receivables/:receivableId/repay',

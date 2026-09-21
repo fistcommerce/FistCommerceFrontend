@@ -10,6 +10,8 @@ import documentNavIcon from '@/assets/Frame 1000004246.png'
 import collapseArrowIcon from '@/assets/CollapseArrow.svg'
 import supportNavIcon from '@/assets/mobile-notification.png'
 
+import { isActionableBridgeStatus, trackerListPathForPurpose } from '@/bridge/transferStatus'
+import { useActiveBridgeTransfers } from '@/hooks/useActiveBridgeTransfers'
 import { logoutUserSession } from '@/session/logoutUserSession'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { selectIsKycVerified } from '@/store/selectors/sessionSelectors'
@@ -21,6 +23,26 @@ import type { DashboardBasePath, DashboardSideNavItem, DashboardSideNavProps } f
 const ICON_24 = 'w-[24px] h-[24px] max-w-[24px] max-h-[24px] object-contain shrink-0'
 
 const LOGO_HEADER = 'w-[45px] h-[40px] max-w-[45px] max-h-[40px] object-contain shrink-0'
+
+function TransfersNavIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden
+    >
+      <path d="M7 17V7" />
+      <path d="M3 11l4-4 4 4" />
+      <path d="M17 7v10" />
+      <path d="M13 13l4 4 4-4" />
+    </svg>
+  )
+}
 
 function DashboardLogoutIcon({ className }: { className?: string }) {
   return (
@@ -76,6 +98,12 @@ const DashboardSideNav = ({
   const merchantPoolDetail = base === '/dashboard/merchant' && isPoolDetailOnly
   const role = base === '/dashboard/merchant' ? 'merchant' : 'investor'
   const homePath = dashboardHomePath(role, isKycVerified)
+  const purpose = role === 'merchant' ? 'repayment' : 'deposit'
+  const { transfers: bridgeTransfers } = useActiveBridgeTransfers({
+    purpose,
+    enabled: isKycVerified,
+  })
+  const transfersBadge = bridgeTransfers.some((row) => isActionableBridgeStatus(row.status))
 
   const overviewNavItem: DashboardSideNavItem = {
     path: `${base}/overview`,
@@ -127,6 +155,14 @@ const DashboardSideNav = ({
         ]
       : []
 
+  const transfersNavItem: DashboardSideNavItem = {
+    path: trackerListPathForPurpose(purpose),
+    label: 'Bridge transactions',
+    icon: coinIcon,
+    isActive: pathname.startsWith(`${base}/bridge`),
+    badge: transfersBadge,
+  }
+
   const supportItem: DashboardSideNavItem = {
     path: `${base}/support`,
     label: 'Support',
@@ -135,7 +171,13 @@ const DashboardSideNav = ({
   }
 
   const allNavItems = isKycVerified
-    ? [opportunitiesNavItem, ...merchantExtraItems, navItems[navItems.length - 1], supportItem]
+    ? [
+        opportunitiesNavItem,
+        ...merchantExtraItems,
+        transfersNavItem,
+        navItems[navItems.length - 1],
+        supportItem,
+      ]
     : [...navItems.slice(0, 2), ...merchantExtraItems, ...navItems.slice(2), supportItem]
 
   const handleLogout = () => {
@@ -205,20 +247,37 @@ const DashboardSideNav = ({
             key={item.path}
             to={item.path}
             onClick={() => onRequestClose?.()}
+            aria-label={item.badge ? `${item.label}, activity` : item.label}
+            aria-current={item.isActive ? 'page' : undefined}
             className={[
               'flex items-center gap-3 rounded-[6px] px-3 py-3 text-left transition-colors w-full',
               item.isActive ? 'bg-[#E8EFFB] text-[#195EBC]' : 'bg-transparent text-[#6B7488]',
             ].join(' ')}
           >
-            <span className="h-[24px] w-[24px] shrink-0 flex items-center justify-center">
-              <img
-                src={item.icon}
-                alt=""
-                className={[
-                  ICON_24,
-                  item.isActive ? 'dashboard-nav-icon-active' : 'dashboard-nav-icon-inactive',
-                ].join(' ')}
-              />
+            <span className="relative h-[24px] w-[24px] shrink-0 flex items-center justify-center">
+              {item.path.endsWith('/bridge') ? (
+                <TransfersNavIcon
+                  className={[
+                    ICON_24,
+                    item.isActive ? 'text-[#195EBC]' : 'text-[#6B7488]',
+                  ].join(' ')}
+                />
+              ) : (
+                <img
+                  src={item.icon}
+                  alt=""
+                  className={[
+                    ICON_24,
+                    item.isActive ? 'dashboard-nav-icon-active' : 'dashboard-nav-icon-inactive',
+                  ].join(' ')}
+                />
+              )}
+              {item.badge ? (
+                <span
+                  className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[#F97316] ring-2 ring-[#F3F3F3]"
+                  aria-hidden
+                />
+              ) : null}
             </span>
             <span
               className={[

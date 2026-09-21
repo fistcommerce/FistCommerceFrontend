@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 
 import DashboardSideNav from '@/components/dashboard/shared/DashboardSideNav'
 import DashboardTopBar from '@/components/dashboard/shared/DashboardTopBar'
+import BridgeStatusNotice from '@/components/bridge/BridgeStatusNotice'
 import { useWallet } from '@/hooks/useWallet'
 
 import type { DashboardLayoutProps } from '@/components/dashboard/shared/types'
@@ -72,6 +73,7 @@ const DashboardLayout = ({
           onMenuClick={() => setIsNavOpen((v) => !v)}
           menuButtonAriaLabel={menuButtonLabel}
         />
+        <BridgeStatusNotice />
 
         <div className="px-4 sm:px-8 py-6 sm:py-8 overflow-y-auto flex-1 min-h-0">
           <div className="max-w-[1120px] mx-auto flex flex-col gap-4 min-w-0 w-full">

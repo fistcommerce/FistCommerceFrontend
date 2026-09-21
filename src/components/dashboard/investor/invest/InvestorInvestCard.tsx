@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import UsdcBalancePicker from '@/components/bridge/UsdcBalancePicker'
 import {
@@ -22,6 +22,7 @@ import {
   resolveOriginatingChainId,
   restoreWalletChainIfSafe,
 } from '@/bridge/restoreWalletChain'
+import { trackerPathForPurpose } from '@/bridge/transferStatus'
 import { withBridgeSessionBusy } from '@/bridge/withBridgeSessionBusy'
 import { getAppChainDisplayName, isArcTestnetContractNetwork } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
@@ -57,6 +58,7 @@ type InvestFlowFailure = {
 
 const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInvestCardProps) => {
   const { poolSlug } = useParams<{ poolSlug: string }>()
+  const navigate = useNavigate()
   const [amount, setAmount] = useState(0)
   const [flowFailure, setFlowFailure] = useState<InvestFlowFailure | null>(null)
   const [investSubmitting, setInvestSubmitting] = useState(false)
@@ -270,7 +272,7 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
       }
       await withBridgeSessionBusy(async () => {
         try {
-          let bridged = false
+          let skipBalanceGate = false
           if (isArcTestnetContractNetwork(contracts.testnetChain.id)) {
             if (!accessToken?.trim()) throw new Error('Sign in to continue.')
             if (!selectedUsdc) throw new Error('Select a USDC balance to fund this deposit.')
@@ -282,11 +284,16 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
               purpose: 'deposit',
               selected: selectedUsdc,
               bridgeConfig,
+              metadata: { poolSlug: resolvedPoolSlug },
             })
-            bridged = result.bridged || result.skippedBridge
+            if (result.awaitingMint && result.transferId) {
+              navigate(trackerPathForPurpose('deposit', result.transferId))
+              return
+            }
+            skipBalanceGate = result.bridged || result.skippedBridge || result.readyToContinue
           }
           await contracts.depositFundingPool(displayAmount, {
-            skipBalanceGate: bridged,
+            skipBalanceGate,
           })
           setFeedbackPhase('idle')
           setStep(InvestmentStep.InvestmentCompleted)
@@ -308,12 +315,16 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
   const confirmLabel = confirmBusy
     ? reconnectPending
       ? 'Connecting wallet…'
-      : 'Confirm in wallet…'
+      : selectedUsdc?.requiresBridge
+        ? 'Confirm burn in wallet…'
+        : 'Confirm in wallet…'
     : !ready
       ? 'Connecting wallet…'
       : !isConnected
         ? 'Reconnect wallet'
-        : 'Invest Funds'
+        : selectedUsdc?.requiresBridge
+          ? 'Start Bridge'
+          : 'Invest Funds'
 
   const activeFeedbackPhase =
     investSubmitting || contracts.isWritePending || reconnectPending ? 'loading' : feedbackPhase
@@ -324,7 +335,11 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
         return (
           <InvestmentConfirmationStep
             amountDisplay={amountDisplay}
-            warningText={INVESTMENT_WARNING}
+            warningText={
+              selectedUsdc?.requiresBridge
+                ? `This burns ${displayAmount} USDC on ${selectedUsdc.label}, then Circle mints it on Arc. After you sign, you can leave — we will notify you when the deposit is ready to complete. ${INVESTMENT_WARNING}`
+                : INVESTMENT_WARNING
+            }
             reviewRows={buildInvestmentReviewRows(
               displayAmount,
               poolInfo.name,
@@ -408,11 +423,19 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     <>
       <DashboardRequestFeedbackLayer
         phase={activeFeedbackPhase}
-        loadingTitle={reconnectPending ? 'Connecting wallet' : 'Submitting investment'}
+        loadingTitle={
+          reconnectPending
+            ? 'Connecting wallet'
+            : selectedUsdc?.requiresBridge
+              ? 'Starting USDC Bridge'
+              : 'Submitting investment'
+        }
         loadingDescription={
           reconnectPending
             ? 'Reconnect the wallet used for this session…'
-            : 'If needed we bridge USDC to Arc, then confirm the deposit in your wallet…'
+            : selectedUsdc?.requiresBridge
+              ? 'Confirm the burn in your wallet. After that you can leave — Circle mints on Arc in the background.'
+              : 'Confirm the deposit in your wallet…'
         }
         errorTitle="Unable to complete investment"
         errorDescription={feedbackError ?? flowFailure?.message}

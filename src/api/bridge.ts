@@ -273,7 +273,40 @@ export type BridgeTransfer = {
   burn_tx_hash?: string
   mint_tx_hash?: string
   deposit_tx_hash?: string
+  repay_tx_hash?: string
+  message_hash?: string
+  error_message?: string
+  metadata?: Record<string, unknown>
   loan_request_id?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export function normalizeBridgeTransfer(raw: unknown): BridgeTransfer {
+  const r = asRecord(raw) ?? {}
+  return {
+    id: pickStr(r, 'id') ?? '',
+    dest_chain_id: pickNum(r, 'dest_chain_id', 'destChainId') ?? 0,
+    source_chain_id: pickNum(r, 'source_chain_id', 'sourceChainId') ?? 0,
+    bridge_kit_source: pickStr(r, 'bridge_kit_source', 'bridgeKitSource') ?? '',
+    bridge_kit_dest: pickStr(r, 'bridge_kit_dest', 'bridgeKitDest') ?? '',
+    amount_wei: pickStr(r, 'amount_wei', 'amountWei') ?? '0',
+    amount_human: pickStr(r, 'amount_human', 'amountHuman') ?? '',
+    token_decimals: pickNum(r, 'token_decimals', 'tokenDecimals') ?? 6,
+    recipient_address: pickStr(r, 'recipient_address', 'recipientAddress') ?? '',
+    status: pickStr(r, 'status') ?? 'created',
+    purpose: (pickStr(r, 'purpose') as BridgePurpose | null) ?? undefined,
+    burn_tx_hash: pickStr(r, 'burn_tx_hash', 'burnTxHash') ?? undefined,
+    mint_tx_hash: pickStr(r, 'mint_tx_hash', 'mintTxHash') ?? undefined,
+    deposit_tx_hash: pickStr(r, 'deposit_tx_hash', 'depositTxHash') ?? undefined,
+    repay_tx_hash: pickStr(r, 'repay_tx_hash', 'repayTxHash') ?? undefined,
+    message_hash: pickStr(r, 'message_hash', 'messageHash') ?? undefined,
+    error_message: pickStr(r, 'error_message', 'errorMessage') ?? undefined,
+    metadata: asRecord(r.metadata) ?? {},
+    loan_request_id: pickStr(r, 'loan_request_id', 'loanRequestId'),
+    created_at: pickStr(r, 'created_at', 'createdAt') ?? undefined,
+    updated_at: pickStr(r, 'updated_at', 'updatedAt') ?? undefined,
+  }
 }
 
 export type BridgePlanTx = {
@@ -355,7 +388,38 @@ export async function createBridgeTransfer(
     headers: jsonAuthHeaders(accessToken),
     body: JSON.stringify(body),
   })
-  return parseJsonResponse<BridgeTransfer>(res)
+  return normalizeBridgeTransfer(await parseJsonResponse<unknown>(res))
+}
+
+export async function fetchBridgeTransfers(
+  accessToken: string | null | undefined,
+  params?: { active?: boolean; status?: string; purpose?: BridgePurpose; signal?: AbortSignal },
+): Promise<BridgeTransfer[]> {
+  const q = new URLSearchParams()
+  if (params?.active) q.set('active', 'true')
+  if (params?.status) q.set('status', params.status)
+  if (params?.purpose) q.set('purpose', params.purpose)
+  const suffix = q.toString() ? `?${q}` : ''
+  const res = await fetchWithAuthRecovery(`${apiUrl('/bridge/transfers/')}${suffix}`, {
+    method: 'GET',
+    headers: authHeaders(accessToken),
+    signal: params?.signal,
+  })
+  const raw = await parseJsonResponse<unknown>(res)
+  return Array.isArray(raw) ? raw.map(normalizeBridgeTransfer).filter((row) => row.id) : []
+}
+
+export async function fetchBridgeTransfer(
+  accessToken: string | null | undefined,
+  transferId: string,
+  options?: { signal?: AbortSignal },
+): Promise<BridgeTransfer> {
+  const res = await fetchWithAuthRecovery(apiUrl(`/bridge/transfers/${transferId}/`), {
+    method: 'GET',
+    headers: authHeaders(accessToken),
+    signal: options?.signal,
+  })
+  return normalizeBridgeTransfer(await parseJsonResponse<unknown>(res))
 }
 
 export async function patchBridgeTransfer(
@@ -368,7 +432,7 @@ export async function patchBridgeTransfer(
     headers: jsonAuthHeaders(accessToken),
     body: JSON.stringify(body),
   })
-  return parseJsonResponse<BridgeTransfer>(res)
+  return normalizeBridgeTransfer(await parseJsonResponse<unknown>(res))
 }
 
 export async function postDepositPlan(
@@ -421,4 +485,35 @@ export async function postTransferRepayPlan(
     headers: jsonAuthHeaders(accessToken),
   })
   return parseJsonResponse<BridgeRepayPlan>(res)
+}
+
+export type BridgeIrisInspectResponse = {
+  http_status: number
+  source_domain: number
+  burn_tx_hash: string
+  iris_url: string
+  applied: boolean
+  iris: Record<string, unknown>
+  transfer: BridgeTransfer
+}
+
+export async function postBridgeTransferIris(
+  accessToken: string | null | undefined,
+  transferId: string,
+): Promise<BridgeIrisInspectResponse> {
+  const res = await fetchWithAuthRecovery(apiUrl(`/bridge/transfers/${transferId}/iris/`), {
+    method: 'POST',
+    headers: jsonAuthHeaders(accessToken),
+  })
+  const raw = asRecord(await parseJsonResponse<unknown>(res)) ?? {}
+  const iris = asRecord(raw.iris) ?? { messages: [] }
+  return {
+    http_status: pickNum(raw, 'http_status', 'httpStatus') ?? 0,
+    source_domain: pickNum(raw, 'source_domain', 'sourceDomain') ?? 0,
+    burn_tx_hash: pickStr(raw, 'burn_tx_hash', 'burnTxHash') ?? '',
+    iris_url: pickStr(raw, 'iris_url', 'irisUrl') ?? '',
+    applied: pickBool(raw, 'applied') ?? false,
+    iris,
+    transfer: normalizeBridgeTransfer(raw.transfer ?? raw),
+  }
 }

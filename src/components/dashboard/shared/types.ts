@@ -49,6 +49,8 @@ export type DashboardSideNavItem = {
   label: string
   icon: string
   isActive: boolean
+  /** Small unread/status dot on the icon */
+  badge?: boolean
 }
 
 export type DashboardSideNavProps = {

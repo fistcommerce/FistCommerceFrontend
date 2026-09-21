@@ -11,6 +11,7 @@ import {
 import { getAddress, type Address } from 'viem'
 
 import {
+  circleEnsureChallengeId,
   postCircleAuthComplete,
   postCircleEmailToken,
   postCircleEnsureWallet,
@@ -234,10 +235,7 @@ export function CircleWalletProvider({ children }: { children: ReactNode }) {
             }),
           )
         } catch (e) {
-          const challengeId =
-            e && typeof e === 'object' && 'challengeId' in e
-              ? String((e as { challengeId?: string }).challengeId || '')
-              : ''
+          const challengeId = circleEnsureChallengeId(e) ?? ''
           if (challengeId) {
             await executeCircleChallenge(challengeId, secrets)
             wallet = assertEoa(

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { BridgeConfig, BridgeEligibleBalance } from '@/api/bridge'
-import { ensureArcUsdcForAction } from '@/bridge/ensureArcUsdc'
+import { ensureArcUsdcForAction, resumeUnsignedBridgeTransfer } from '@/bridge/ensureArcUsdc'
 import type { AppWallet } from '@/wallet/appWallet'
 
 const fetchBridgeConfig = vi.fn()
@@ -95,9 +95,14 @@ describe('ensureArcUsdcForAction', () => {
     fetchBridgeConfig.mockResolvedValue(config)
     isCircleAppWallet.mockReturnValue(false)
     ensureWalletChain.mockResolvedValue(undefined)
-    bridgeUsdcToArcTestnet.mockResolvedValue({ ok: true })
-    createBridgeTransfer.mockResolvedValue({ id: 'xfer-1' })
-    patchBridgeTransfer.mockResolvedValue({ id: 'xfer-1', status: 'minted' })
+    bridgeUsdcToArcTestnet.mockResolvedValue({
+      ok: true,
+      burnTxHash: `0x${'b'.repeat(64)}`,
+      completed: false,
+      useForwarder: true,
+    })
+    createBridgeTransfer.mockResolvedValue({ id: 'xfer-1', status: 'created' })
+    patchBridgeTransfer.mockResolvedValue({ id: 'xfer-1', status: 'burned' })
     getPublicClient.mockReturnValue({
       readContract: vi.fn().mockResolvedValue(0n),
     })
@@ -121,7 +126,13 @@ describe('ensureArcUsdcForAction', () => {
       },
       bridgeConfig: config,
     })
-    expect(result).toEqual({ transferId: null, bridged: false, skippedBridge: false })
+    expect(result).toEqual({
+      transferId: null,
+      bridged: false,
+      skippedBridge: false,
+      awaitingMint: false,
+      readyToContinue: false,
+    })
     expect(ensureWalletChain).toHaveBeenCalledWith(wallet, 5042002)
     expect(bridgeUsdcToArcTestnet).not.toHaveBeenCalled()
   })
@@ -191,7 +202,7 @@ describe('ensureArcUsdcForAction', () => {
     )
   })
 
-  it('skips CCTP when Arc already has enough USDC', async () => {
+  it('still bridges from the selected CCTP source when Arc already has enough USDC', async () => {
     getPublicClient.mockReturnValue({
       readContract: vi.fn().mockResolvedValue(25_000_000n),
     })
@@ -204,13 +215,15 @@ describe('ensureArcUsdcForAction', () => {
       selected: arbSource(),
       bridgeConfig: config,
     })
-    expect(result.skippedBridge).toBe(true)
-    expect(result.bridged).toBe(false)
-    expect(bridgeUsdcToArcTestnet).not.toHaveBeenCalled()
-    expect(createBridgeTransfer).not.toHaveBeenCalled()
+    expect(result.bridged).toBe(true)
+    expect(result.skippedBridge).toBe(false)
+    expect(bridgeUsdcToArcTestnet).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChainId: 421614 }),
+    )
+    expect(createBridgeTransfer).toHaveBeenCalled()
   })
 
-  it('bridges then soft-patches minted and lands on Arc', async () => {
+  it('burns then patches burned and returns awaiting mint', async () => {
     const result = await ensureArcUsdcForAction({
       accessToken: 't',
       wallet,
@@ -220,10 +233,73 @@ describe('ensureArcUsdcForAction', () => {
       selected: arbSource(),
       bridgeConfig: config,
     })
-    expect(result).toEqual({ transferId: 'xfer-1', bridged: true, skippedBridge: false })
-    expect(bridgeUsdcToArcTestnet).toHaveBeenCalled()
-    expect(patchBridgeTransfer).toHaveBeenCalledWith('t', 'xfer-1', { status: 'minted' })
+    expect(result).toEqual({
+      transferId: 'xfer-1',
+      bridged: true,
+      skippedBridge: false,
+      awaitingMint: true,
+      readyToContinue: false,
+    })
+    expect(bridgeUsdcToArcTestnet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceChainId: 421614,
+        recipientAddress: wallet.address,
+        onBurn: expect.any(Function),
+      }),
+    )
+    expect(createBridgeTransfer).toHaveBeenCalledWith(
+      't',
+      expect.objectContaining({ metadata: expect.objectContaining({ useForwarder: true }) }),
+    )
+    expect(patchBridgeTransfer).toHaveBeenCalledWith('t', 'xfer-1', { status: 'burn_pending' })
+    expect(patchBridgeTransfer).toHaveBeenCalledWith(
+      't',
+      'xfer-1',
+      expect.objectContaining({
+        status: 'burned',
+        burn_tx_hash: `0x${'b'.repeat(64)}`,
+      }),
+    )
     expect(ensureWalletChain).toHaveBeenLastCalledWith(wallet, 5042002)
+  })
+
+  it('does not start a second burn when an in-flight transfer is already burned', async () => {
+    createBridgeTransfer.mockResolvedValue({
+      id: 'xfer-1',
+      status: 'attesting',
+      burn_tx_hash: `0x${'b'.repeat(64)}`,
+    })
+    const result = await ensureArcUsdcForAction({
+      accessToken: 't',
+      wallet,
+      walletAddress: wallet.address!,
+      amountHuman: 10,
+      purpose: 'deposit',
+      selected: arbSource(),
+      bridgeConfig: config,
+    })
+    expect(result.awaitingMint).toBe(true)
+    expect(bridgeUsdcToArcTestnet).not.toHaveBeenCalled()
+  })
+
+  it('skips CCTP when a matching transfer is already minted', async () => {
+    createBridgeTransfer.mockResolvedValue({ id: 'xfer-1', status: 'minted' })
+    const result = await ensureArcUsdcForAction({
+      accessToken: 't',
+      wallet,
+      walletAddress: wallet.address!,
+      amountHuman: 10,
+      purpose: 'deposit',
+      selected: arbSource(),
+      bridgeConfig: config,
+    })
+    expect(result).toMatchObject({
+      transferId: 'xfer-1',
+      bridged: true,
+      awaitingMint: false,
+      readyToContinue: true,
+    })
+    expect(bridgeUsdcToArcTestnet).not.toHaveBeenCalled()
   })
 
   it('continues when patch minted fails after a successful bridge', async () => {
@@ -258,5 +334,73 @@ describe('ensureArcUsdcForAction', () => {
     expect(dispatch).toHaveBeenCalledWith(
       expect.objectContaining({ type: expect.stringContaining('endFundingHop') }),
     )
+  })
+})
+
+describe('resumeUnsignedBridgeTransfer', () => {
+  const unsigned = {
+    id: 'xfer-1',
+    dest_chain_id: 5042002,
+    source_chain_id: 421614,
+    bridge_kit_source: 'Arbitrum_Sepolia',
+    bridge_kit_dest: 'Arc_Testnet',
+    amount_wei: '10000000',
+    amount_human: '10',
+    token_decimals: 6,
+    recipient_address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    status: 'burn_pending',
+    purpose: 'deposit' as const,
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    fetchBridgeConfig.mockResolvedValue(config)
+    isCircleAppWallet.mockReturnValue(false)
+    ensureWalletChain.mockResolvedValue(undefined)
+    bridgeUsdcToArcTestnet.mockResolvedValue({
+      ok: true,
+      burnTxHash: `0x${'b'.repeat(64)}`,
+      completed: false,
+      useForwarder: true,
+    })
+    patchBridgeTransfer.mockResolvedValue({ id: 'xfer-1', status: 'burned' })
+  })
+
+  it('opens a burn signature for an unsigned Bridge', async () => {
+    const result = await resumeUnsignedBridgeTransfer({
+      accessToken: 't',
+      wallet,
+      walletAddress: wallet.address!,
+      transfer: unsigned,
+      bridgeConfig: config,
+    })
+    expect(result.awaitingMint).toBe(true)
+    expect(bridgeUsdcToArcTestnet).toHaveBeenCalledWith(
+      expect.objectContaining({ sourceChainId: 421614, amountHuman: '10' }),
+    )
+    expect(patchBridgeTransfer).toHaveBeenCalledWith(
+      't',
+      'xfer-1',
+      expect.objectContaining({
+        status: 'burned',
+        burn_tx_hash: `0x${'b'.repeat(64)}`,
+      }),
+    )
+  })
+
+  it('does not re-burn when a burn hash already exists', async () => {
+    const result = await resumeUnsignedBridgeTransfer({
+      accessToken: 't',
+      wallet,
+      walletAddress: wallet.address!,
+      transfer: {
+        ...unsigned,
+        status: 'attesting',
+        burn_tx_hash: `0x${'b'.repeat(64)}`,
+      },
+      bridgeConfig: config,
+    })
+    expect(result.awaitingMint).toBe(true)
+    expect(bridgeUsdcToArcTestnet).not.toHaveBeenCalled()
   })
 })

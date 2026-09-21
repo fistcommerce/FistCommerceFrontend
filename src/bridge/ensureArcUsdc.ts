@@ -1,5 +1,3 @@
-import { formatUnits, type Abi } from 'viem'
-
 import {
   createBridgeTransfer,
   fetchBridgeConfig,
@@ -7,14 +5,23 @@ import {
   type BridgeConfig,
   type BridgeEligibleBalance,
   type BridgePurpose,
+  type BridgeTransfer,
 } from '@/api/bridge'
 import { assertAcceptedBridgeSelection } from '@/bridge/acceptedSources'
 import { bridgeUsdcToArcTestnet } from '@/bridge/cctpBridge'
+import type { CctpBridgeTxHashes } from '@/bridge/cctpBridgeResult'
+import {
+  hasBurnTx,
+  isAwaitingMintStatus,
+  isReadyToContinueStatus,
+  parseBridgeAmountHuman,
+  transferNeedsSignature,
+} from '@/bridge/transferStatus'
 import { setActiveFundingHopPhase, withFundingHop } from '@/bridge/withFundingHop'
 import { ARC_TESTNET_CHAIN_ID } from '@/contract_config/contractNetwork'
 import { isCircleAppWallet, type AppWallet } from '@/wallet/appWallet'
 import { isCircleSupportedChainId } from '@/circle/chainMap'
-import { ensureWalletChain, getPublicClient } from '@/wallet/viemClients'
+import { ensureWalletChain } from '@/wallet/viemClients'
 
 export type BridgeFundingPhase =
   | 'idle'
@@ -26,50 +33,70 @@ export type BridgeFundingPhase =
 export type EnsureArcUsdcResult = {
   transferId: string | null
   bridged: boolean
-  /** True when Arc already had enough USDC so CCTP was skipped. */
+  /** Always false for CCTP sources. Arc-native selection does not skip the deposit balance gate. */
   skippedBridge: boolean
+  awaitingMint: boolean
+  readyToContinue: boolean
 }
 
-const ERC20_BALANCE_ABI = [
-  {
-    type: 'function',
-    name: 'balanceOf',
-    stateMutability: 'view',
-    inputs: [{ name: 'account', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-] as const satisfies Abi
-
-async function readArcUsdcBalanceHuman(
-  walletAddress: string,
-  config: BridgeConfig,
-): Promise<number | null> {
-  const dest = config.destination
-  if (!dest?.usdcAddress || !walletAddress) return null
+async function softPatch(
+  accessToken: string,
+  transferId: string,
+  body: Record<string, unknown>,
+): Promise<void> {
   try {
-    const client = getPublicClient(dest.chainId || ARC_TESTNET_CHAIN_ID)
-    const raw = await client.readContract({
-      address: dest.usdcAddress as `0x${string}`,
-      abi: ERC20_BALANCE_ABI,
-      functionName: 'balanceOf',
-      args: [walletAddress as `0x${string}`],
-    })
-    const decimals = dest.usdcDecimals ?? 6
-    const n = Number(formatUnits(typeof raw === 'bigint' ? raw : 0n, decimals))
-    return Number.isFinite(n) ? n : null
-  } catch {
-    return null
-  }
-}
-
-async function softPatchMinted(accessToken: string, transferId: string): Promise<void> {
-  try {
-    await patchBridgeTransfer(accessToken, transferId, { status: 'minted' })
+    await patchBridgeTransfer(accessToken, transferId, body)
   } catch (e) {
     if (import.meta.env.DEV) {
-      console.warn('[ensureArcUsdc] patch minted failed (continuing; USDC may already be on Arc)', e)
+      console.warn('[ensureArcUsdc] patch failed (continuing)', body, e)
     }
   }
+}
+
+async function executeCctpBurnForTransfer(params: {
+  accessToken: string
+  wallet: AppWallet
+  transferId: string
+  sourceChainId: number
+  bridgeKitSource: string
+  amountHuman: string
+  recipientAddress: string
+}): Promise<{ burnTxHash?: string; completed: boolean }> {
+  await softPatch(params.accessToken, params.transferId, { status: 'burn_pending' })
+
+  const persistBurn = async (burnTxHash: string) => {
+    await softPatch(params.accessToken, params.transferId, {
+      status: 'burned',
+      burn_tx_hash: burnTxHash,
+      metadata: { useForwarder: true },
+    })
+  }
+  const persistMint = (hashes: CctpBridgeTxHashes) => {
+    if (!hashes.mintTxHash && !hashes.burnTxHash) return
+    void softPatch(params.accessToken, params.transferId, {
+      ...(hashes.burnTxHash ? { burn_tx_hash: hashes.burnTxHash } : {}),
+      ...(hashes.mintTxHash
+        ? { status: 'minted', mint_tx_hash: hashes.mintTxHash }
+        : hashes.burnTxHash
+          ? { status: 'attesting' }
+          : {}),
+    })
+  }
+
+  const outcome = await bridgeUsdcToArcTestnet({
+    wallet: params.wallet,
+    sourceChainId: params.sourceChainId,
+    bridgeKitSource: params.bridgeKitSource,
+    amountHuman: params.amountHuman,
+    recipientAddress: params.recipientAddress,
+    onBurn: (hash) => {
+      void persistBurn(hash)
+    },
+    onComplete: persistMint,
+  })
+
+  if (outcome.burnTxHash) await persistBurn(outcome.burnTxHash)
+  return outcome
 }
 
 async function ensureArcOrBestEffort(wallet: AppWallet, destChainId: number): Promise<void> {
@@ -80,11 +107,101 @@ async function ensureArcOrBestEffort(wallet: AppWallet, destChainId: number): Pr
   }
 }
 
+function skippedBurnResult(transferId: string, readyToContinue: boolean): EnsureArcUsdcResult {
+  return {
+    transferId,
+    bridged: true,
+    skippedBridge: false,
+    awaitingMint: !readyToContinue,
+    readyToContinue,
+  }
+}
+
 /**
- * If the selected balance is off-Arc, create a bridge transfer, run Bridge Kit, mark minted.
- * Always ends with the wallet switched to Arc Testnet (deposit/repay destination).
- * Circle hops run under deposit-scoped `fundingHop` so auth.wallet / auth.chainId stay frozen.
- * Callers should wrap deposit + restore in `withBridgeSessionBusy` as well (nestable).
+ * Resume an unsigned transfer from the tracking page. Never re-burns a transfer
+ * that already has a burn transaction hash.
+ */
+export async function resumeUnsignedBridgeTransfer(params: {
+  accessToken: string
+  wallet: AppWallet
+  walletAddress: string
+  transfer: BridgeTransfer
+  bridgeConfig?: BridgeConfig | null
+}): Promise<EnsureArcUsdcResult> {
+  const destChainId =
+    params.bridgeConfig?.destination?.chainId ??
+    (await fetchBridgeConfig()).destination?.chainId ??
+    ARC_TESTNET_CHAIN_ID
+  const sessionWallet = params.transfer.recipient_address?.trim() || params.walletAddress
+  const sourceChainId = params.transfer.source_chain_id
+  const bridgeKitSource = params.transfer.bridge_kit_source?.trim()
+  const amountHuman = params.transfer.amount_human?.trim() || String(parseBridgeAmountHuman(params.transfer.amount_human))
+
+  if (isReadyToContinueStatus(params.transfer.status)) {
+    await ensureWalletChain(params.wallet, destChainId)
+    return skippedBurnResult(params.transfer.id, true)
+  }
+  if (hasBurnTx(params.transfer)) {
+    await ensureWalletChain(params.wallet, destChainId)
+    return skippedBurnResult(params.transfer.id, false)
+  }
+  if (!transferNeedsSignature(params.transfer)) {
+    throw new Error('This Bridge is not waiting for a wallet signature.')
+  }
+  if (!bridgeKitSource) {
+    throw new Error('This Bridge is missing the source network needed to sign.')
+  }
+  if (!sourceChainId) {
+    throw new Error('This Bridge is missing the source network needed to sign.')
+  }
+  if (!(parseBridgeAmountHuman(amountHuman) > 0)) {
+    throw new Error('This Bridge does not have a valid amount to sign.')
+  }
+  if (isCircleAppWallet(params.wallet) && !isCircleSupportedChainId(sourceChainId)) {
+    throw new Error('Circle Wallet cannot sign this Bridge from the recorded source network.')
+  }
+
+  return withFundingHop(
+    {
+      sessionChainId: destChainId,
+      sessionWallet,
+      hopChainId: sourceChainId,
+      purpose: params.transfer.purpose === 'repayment' ? 'repayment' : 'deposit',
+      phase: 'switching_source',
+    },
+    async () => {
+      try {
+        setActiveFundingHopPhase('bridging')
+        const outcome = await executeCctpBurnForTransfer({
+          accessToken: params.accessToken,
+          wallet: params.wallet,
+          transferId: params.transfer.id,
+          sourceChainId,
+          bridgeKitSource,
+          amountHuman,
+          recipientAddress: sessionWallet,
+        })
+        setActiveFundingHopPhase('switching_arc')
+        await ensureWalletChain(params.wallet, destChainId)
+        return {
+          transferId: params.transfer.id,
+          bridged: true,
+          skippedBridge: false,
+          awaitingMint: !outcome.completed,
+          readyToContinue: Boolean(outcome.completed),
+        }
+      } catch (e) {
+        await ensureArcOrBestEffort(params.wallet, destChainId)
+        throw e
+      }
+    },
+  )
+}
+
+/**
+ * If the selected balance is off-Arc, create a bridge transfer and burn on the source chain.
+ * Returns after burn so callers can leave while Circle Forwarder + Iris complete the mint.
+ * Always ends with the wallet switched to Arc Testnet.
  */
 export async function ensureArcUsdcForAction(params: {
   accessToken: string
@@ -95,6 +212,7 @@ export async function ensureArcUsdcForAction(params: {
   purpose: BridgePurpose
   selected: BridgeEligibleBalance
   loanRequestId?: string
+  metadata?: Record<string, unknown>
   onPhase?: (phase: BridgeFundingPhase) => void
   /** Pre-fetched config; fetched on demand when omitted. */
   bridgeConfig?: BridgeConfig | null
@@ -112,7 +230,13 @@ export async function ensureArcUsdcForAction(params: {
 
   if (!selected.requiresBridge) {
     await ensureWalletChain(params.wallet, destChainId)
-    return { transferId: null, bridged: false, skippedBridge: false }
+    return {
+      transferId: null,
+      bridged: false,
+      skippedBridge: false,
+      awaitingMint: false,
+      readyToContinue: false,
+    }
   }
 
   if (isCircleAppWallet(params.wallet) && !isCircleSupportedChainId(selected.chainId)) {
@@ -131,13 +255,6 @@ export async function ensureArcUsdcForAction(params: {
 
   if (selected.sufficient === false) {
     throw new Error(`Insufficient USDC on ${selected.label}.`)
-  }
-
-  // Idempotent: skip CCTP when Arc already holds enough USDC (retry after mint).
-  const arcBal = await readArcUsdcBalanceHuman(sessionWallet, config)
-  if (arcBal != null && arcBal + 1e-9 >= amount) {
-    await ensureWalletChain(params.wallet, destChainId)
-    return { transferId: null, bridged: false, skippedBridge: true }
   }
 
   return withFundingHop(
@@ -160,21 +277,55 @@ export async function ensureArcUsdcForAction(params: {
           recipient_address: sessionWallet,
           purpose: params.purpose,
           loan_request_id: params.loanRequestId,
+          metadata: {
+            useForwarder: true,
+            ...(params.metadata ?? {}),
+          },
         })
 
-        await bridgeUsdcToArcTestnet({
+        if (isReadyToContinueStatus(transfer.status)) {
+          setActiveFundingHopPhase('switching_arc')
+          await ensureWalletChain(params.wallet, destChainId)
+          return {
+            transferId: transfer.id,
+            bridged: true,
+            skippedBridge: false,
+            awaitingMint: false,
+            readyToContinue: true,
+          }
+        }
+
+        if (hasBurnTx(transfer) && isAwaitingMintStatus(transfer.status)) {
+          setActiveFundingHopPhase('switching_arc')
+          await ensureWalletChain(params.wallet, destChainId)
+          return {
+            transferId: transfer.id,
+            bridged: true,
+            skippedBridge: false,
+            awaitingMint: true,
+            readyToContinue: false,
+          }
+        }
+
+        const outcome = await executeCctpBurnForTransfer({
+          accessToken: params.accessToken,
           wallet: params.wallet,
+          transferId: transfer.id,
           sourceChainId: selected.chainId,
           bridgeKitSource: selected.bridgeKitId!,
           amountHuman: String(amount),
           recipientAddress: sessionWallet,
         })
 
-        await softPatchMinted(params.accessToken, transfer.id)
-
         setActiveFundingHopPhase('switching_arc')
         await ensureWalletChain(params.wallet, destChainId)
-        return { transferId: transfer.id, bridged: true, skippedBridge: false }
+        return {
+          transferId: transfer.id,
+          bridged: true,
+          skippedBridge: false,
+          awaitingMint: !outcome.completed,
+          readyToContinue: Boolean(outcome.completed),
+        }
       } catch (e) {
         await ensureArcOrBestEffort(params.wallet, destChainId)
         throw e

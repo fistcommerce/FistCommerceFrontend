@@ -278,7 +278,8 @@ export function evaluateDashboardSession(ctx: AccessContext): AccessDecision {
 export function evaluateInvestorFinancialRoute(pathname: string, ctx: AccessContext): AccessDecision {
   const poolInvest = /\/dashboard\/investor\/lending-pool\/[^/]+\/invest\/?$/.test(pathname)
   const poolWithdraw = /\/dashboard\/investor\/lending-pool\/[^/]+\/withdraw\/?$/.test(pathname)
-  if (!poolInvest && !poolWithdraw) {
+  const investorBridge = /\/dashboard\/investor\/bridge(?:\/|$)/.test(pathname)
+  if (!poolInvest && !poolWithdraw && !investorBridge) {
     return { allowed: true, redirectTo: null, reason: 'ok' }
   }
 
@@ -297,13 +298,14 @@ export function evaluateMerchantFinancialRoute(pathname: string, ctx: AccessCont
   const applySuccess = /\/dashboard\/merchant\/lending-pool\/[^/]+\/apply-loan\/success\/?$/.test(pathname)
   const applyFailure = /\/dashboard\/merchant\/lending-pool\/[^/]+\/apply-loan\/failure\/?$/.test(pathname)
   const repay = /\/dashboard\/merchant\/receivables\/[^/]+\/repay/.test(pathname)
+  const merchantBridge = /\/dashboard\/merchant\/bridge(?:\/|$)/.test(pathname)
 
-  if (!applyLoan && !applySuccess && !applyFailure && !repay) {
+  if (!applyLoan && !applySuccess && !applyFailure && !repay && !merchantBridge) {
     return { allowed: true, redirectTo: null, reason: 'ok' }
   }
 
   const caps = evaluateCapabilities(ctx)
-  if (repay) {
+  if (repay || merchantBridge) {
     if (!caps.canUseMerchantRepayActions) {
       return { allowed: false, redirectTo: '/dashboard/merchant/overview', reason: 'kyc_required' }
     }

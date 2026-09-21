@@ -1,6 +1,6 @@
 import { getAddress, type Address, type Hash, type Hex } from 'viem'
 
-import { apiUrl, parseJsonResponse } from '@/api/client'
+import { apiRequestErrorFromJson, apiUrl, parseJsonResponse } from '@/api/client'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import { circleBlockchainFromChainId } from '@/circle/chainMap'
 import type {
@@ -215,6 +215,29 @@ export async function postCircleSessionRefresh(params: {
   return parseSessionBody(body, chainId)
 }
 
+export type CircleWalletCreationRequiredError = Error & {
+  challengeId?: string
+  code: string
+}
+
+export function circleEnsureChallengeId(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null
+  const rec = error as { challengeId?: unknown }
+  return asOptionalString(rec.challengeId)
+}
+
+async function readJsonObject(res: Response): Promise<Record<string, unknown>> {
+  try {
+    const raw: unknown = await res.json()
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      return raw as Record<string, unknown>
+    }
+  } catch {
+    /* empty or non-JSON body */
+  }
+  return {}
+}
+
 export async function postCircleEnsureWallet(params: {
   chainId: number
   userToken: string
@@ -230,17 +253,21 @@ export async function postCircleEnsureWallet(params: {
       accountType: 'EOA',
     }),
   })
-  const body = await parseJsonResponse<Record<string, unknown>>(res)
+  // Do not use parseJsonResponse here: 409 + challengeId is the PIN create-wallet path.
+  const body = await readJsonObject(res)
   if (res.status === 409) {
     const challengeId = asOptionalString(body.challengeId) ?? asOptionalString(body.challenge_id)
     const err = new Error(
       challengeId
         ? 'Circle wallet creation requires PIN confirmation.'
-        : 'Circle did not return a wallet on this network.',
-    ) as Error & { challengeId?: string; code?: string }
+        : asOptionalString(body.detail) ?? 'Circle did not return a wallet on this network.',
+    ) as CircleWalletCreationRequiredError
     err.challengeId = challengeId ?? undefined
     err.code = asOptionalString(body.code) ?? 'wallet_creation_required'
     throw err
+  }
+  if (!res.ok) {
+    throw apiRequestErrorFromJson(res.status, body, res.statusText)
   }
   const wallet = parseWalletRecord(body.wallet ?? body, params.chainId)
   if (!wallet) throw new Error('Circle did not return a wallet on this network.')

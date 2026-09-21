@@ -35,8 +35,7 @@ export default function UsdcBalancePicker({
       <p className="text-[#6B7488] text-[13px] font-medium mb-2">Pay with USDC from</p>
       {circleMultiAddressHint ? (
         <p className="text-[#6B7488] text-[12px] mb-2">
-          Circle uses a different address on each network. Bridging will switch networks
-          temporarily, then return to Arc for deposit.
+          We may switch networks so you can sign. After that you can leave while USDC moves to Arc.
         </p>
       ) : null}
       {loading ? (
@@ -68,8 +67,8 @@ export default function UsdcBalancePicker({
                     <p className="text-[#0B1220] text-[14px] font-medium">{b.label}</p>
                     <p className="text-[#8B92A3] text-[12px] mt-0.5">
                       {b.requiresBridge
-                        ? 'Bridge to Arc via CCTP, then continue'
-                        : 'Already on Arc — no bridge'}
+                        ? 'We’ll move this to Arc first (about a minute)'
+                        : 'Use this balance now'}
                     </p>
                   </div>
                   <div className="text-right shrink-0">

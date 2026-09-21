@@ -32,6 +32,7 @@ describe('circle/chainMap', () => {
 
   it('resolves viem chains for Circle switches including hop sources', () => {
     expect(getCircleSwitchChainById(ETH_SEPOLIA_CHAIN_ID)?.id).toBe(ETH_SEPOLIA_CHAIN_ID)
+    expect(getCircleSwitchChainById(AVAX_FUJI_CHAIN_ID)?.id).toBe(AVAX_FUJI_CHAIN_ID)
     expect(getCircleSwitchChainById(TESTNET_CHAIN_ID)?.id).toBe(TESTNET_CHAIN_ID)
     expect(getCircleSwitchChainById(1)).toBeNull()
   })

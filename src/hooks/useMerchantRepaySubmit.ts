@@ -8,6 +8,7 @@ import {
   restoreWalletChainIfSafe,
 } from '@/bridge/restoreWalletChain'
 import { clearRepayUsdcSource } from '@/bridge/repayUsdcSourceStorage'
+import { trackerPathForPurpose } from '@/bridge/transferStatus'
 import { withBridgeSessionBusy } from '@/bridge/withBridgeSessionBusy'
 import {
   merchantRepayPaths,
@@ -137,8 +138,13 @@ export function useMerchantRepaySubmit({
                 usdcDecimals: usdcSource.usdcDecimals,
               },
               loanRequestId: repayContext.loanId,
+              metadata: { loanId: repayContext.loanId },
             })
-            bridged = result.bridged || result.skippedBridge
+            if (result.awaitingMint && result.transferId) {
+              navigate(trackerPathForPurpose('repayment', result.transferId))
+              return
+            }
+            bridged = result.bridged || result.skippedBridge || result.readyToContinue
           }
 
           const txHash = await contracts.executeMerchantRepayment(
