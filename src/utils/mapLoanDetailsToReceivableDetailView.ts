@@ -96,12 +96,6 @@ function repaymentDueVariantFromStatus(
   return 'upcoming'
 }
 
-function pick<T>(apiValue: T | null | undefined, fallback: T, emptyStringIsMissing = true): T {
-  if (apiValue == null) return fallback
-  if (emptyStringIsMissing && typeof apiValue === 'string' && !apiValue.trim()) return fallback
-  return apiValue
-}
-
 /** Map `LoanDetailsSerializer` list/detail payload to receivables table row. */
 export function mapLoanDetailsToReceivableTableRow(
   loanId: string,
@@ -185,7 +179,7 @@ function mergeLifecycle(
   ]
   return fallback.lifecycle.map((step, i) => ({
     ...step,
-    date: formatIsoDateForDisplay(dates[i] ?? step.date) === '—' ? step.date : formatIsoDateForDisplay(dates[i]),
+    date: formatIsoDateForDisplay(dates[i]),
   }))
 }
 
@@ -196,9 +190,10 @@ function mergeRepaymentRows(
   const byLabel = new Map(fallback.repaymentRows.map((r) => [r.label.toLowerCase(), r]))
   const get = (label: string, apiVal: string | null | undefined) => {
     const fb = byLabel.get(label.toLowerCase())
-    const formatted =
-      label.toLowerCase().includes('date') ? formatIsoDateForDisplay(apiVal) : pick(apiVal, fb?.value ?? '—')
-    return { label: fb?.label ?? label, value: formatted === '—' && fb?.value ? fb.value : formatted }
+    const formatted = label.toLowerCase().includes('date')
+      ? formatIsoDateForDisplay(apiVal)
+      : apiVal?.trim() || '—'
+    return { label: fb?.label ?? label, value: formatted }
   }
 
   const repaymentAmounts = resolveLoanRepaymentAmountLabels({
@@ -216,20 +211,8 @@ function mergeRepaymentRows(
         : null,
     ),
     get('Repayment Structure', api.repaymentDetails.repaymentStructure),
-    {
-      label: 'Amount repaid',
-      value:
-        repaymentAmounts.amountRepaid !== '—'
-          ? repaymentAmounts.amountRepaid
-          : (byLabel.get('amount repaid')?.value ?? '—'),
-    },
-    {
-      label: 'Amount left',
-      value:
-        repaymentAmounts.amountLeft !== '—'
-          ? repaymentAmounts.amountLeft
-          : (byLabel.get('amount left')?.value ?? '—'),
-    },
+    { label: 'Amount repaid', value: repaymentAmounts.amountRepaid },
+    { label: 'Amount left', value: repaymentAmounts.amountLeft },
     byLabel.get('grace period') ?? { label: 'Grace Period', value: 'N/A' },
     byLabel.get('late payment penalty') ?? {
       label: 'Late Payment Penalty',
@@ -246,7 +229,7 @@ function mergeBasicInfo(
   const field = (label: string, apiVal: string | number | null | undefined) => {
     const fb = map.get(label.toLowerCase())
     if (apiVal == null || (typeof apiVal === 'string' && !apiVal.trim())) {
-      return { label: fb?.label ?? label, value: fb?.value ?? '—' }
+      return { label: fb?.label ?? label, value: '—' }
     }
     return { label: fb?.label ?? label, value: String(apiVal) }
   }
@@ -259,7 +242,7 @@ function mergeBasicInfo(
   ]
 }
 
-/** Merge API loan details with demo/placeholder fields where the API omits values. */
+/** Map live loan details onto the receivable detail layout. Missing API fields stay `—`. */
 export function mapLoanDetailsToReceivableDetailView(
   loanId: string,
   api: LoanDetailsResponse,
@@ -274,10 +257,7 @@ export function mapLoanDetailsToReceivableDetailView(
 
   const stage = resolveReceivableStage(api)
   const debt = statusToDebtStatus(api)
-  const title =
-    pick(api.summary.title, fallback.row.receivableName) ||
-    pick(api.merchant.businessName, fallback.row.receivableName) ||
-    `Receivable ${loanId.slice(0, 8)}`
+  const title = loanDisplayTitle(loanId, api)
 
   const totalDisplay = formatMoneyDisplay(api.summary.totalAmount)
   const fundingDisplay = formatMoneyDisplay(api.summary.funding)
@@ -296,10 +276,10 @@ export function mapLoanDetailsToReceivableDetailView(
   const row: ReceivableTableRow = {
     ...mapLoanDetailsToReceivableTableRow(loanId, api),
     receivableName: title,
-    loanAmount: totalDisplay === '—' ? fallback.row.loanAmount : totalDisplay,
-    apr: aprDisplay === '—' ? fallback.row.apr : aprDisplay,
-    repaymentAmount: owedDisplay === '—' ? fallback.row.repaymentAmount : owedDisplay,
-    interestSubline: aprDisplay !== '—' ? aprDisplay : fallback.row.interestSubline,
+    loanAmount: totalDisplay,
+    apr: aprDisplay,
+    repaymentAmount: owedDisplay,
+    interestSubline: aprDisplay !== '—' ? aprDisplay : '',
     debtStatus: debt.debtStatus,
     debtStatusVariant: debt.debtStatusVariant,
     rowEmphasis: debt.debtStatusVariant === 'defaulted',
@@ -309,28 +289,32 @@ export function mapLoanDetailsToReceivableDetailView(
     if (m.id === 'total') {
       return {
         ...m,
-        primaryValue: totalDisplay === '—' ? m.primaryValue : totalDisplay,
+        primaryValue: totalDisplay,
         secondaryValue: api.summary.totalAmount?.trim()
           ? `${api.summary.totalAmount.trim()} USDT`
-          : m.secondaryValue,
+          : '—',
       }
     }
     if (m.id === 'funding') {
       return {
         ...m,
-        primaryValue: fundingDisplay === '—' ? m.primaryValue : fundingDisplay,
-        secondaryValue: api.summary.funding?.trim() ? `${api.summary.funding.trim()} USDT` : m.secondaryValue,
+        primaryValue: fundingDisplay,
+        secondaryValue: api.summary.funding?.trim()
+          ? `${api.summary.funding.trim()} USDT`
+          : '—',
       }
     }
     if (m.id === 'owed') {
       return {
         ...m,
-        primaryValue: owedDisplay === '—' ? m.primaryValue : owedDisplay,
-        secondaryValue: aprDisplay !== '—' ? aprDisplay : m.secondaryValue,
+        primaryValue: owedDisplay,
+        secondaryValue: aprDisplay,
       }
     }
     return m
   })
+
+  const progressLabel = api.repaymentDetails.progress.label?.trim() || ''
 
   return {
     ...fallback,
@@ -345,9 +329,9 @@ export function mapLoanDetailsToReceivableDetailView(
         ? 'Application rejected'
         : stage === ReceivableStage.Repaid
           ? 'Loan repaid in full'
-          : pick(api.repaymentDetails.progress.label, fallback.maturityBanner) || fallback.maturityBanner,
+          : progressLabel || '—',
     basicInfo: mergeBasicInfo(api, fallback),
-    documentName: verificationDocumentUrl ? LOAN_VERIFICATION_FILE_LABEL : fallback.documentName,
+    documentName: verificationDocumentUrl ? LOAN_VERIFICATION_FILE_LABEL : '—',
     documentUrl: verificationDocumentUrl,
     repayState:
       repayState ??

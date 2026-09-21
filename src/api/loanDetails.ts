@@ -10,6 +10,16 @@ function pickStr(record: Record<string, unknown>, ...keys: string[]): string | n
   for (const key of keys) {
     const value = record[key]
     if (typeof value === 'string' && value.trim()) return value.trim()
+    if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  }
+  return null
+}
+
+function pickFiniteNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value)
+    if (Number.isFinite(n)) return n
   }
   return null
 }
@@ -221,22 +231,10 @@ function normalizeLoanDetailsPayload(raw: unknown): LoanDetailsResponse {
     summary: {
       title: pickStr(summary, 'title'),
       riskTierId: Number(summary.riskTierId ?? summary.risk_tier_id ?? 0),
-      apr: (() => {
-        const tenor =
-          typeof summary.tenorRatePercent === 'number'
-            ? summary.tenorRatePercent
-            : Number(summary.tenorRatePercent)
-        if (Number.isFinite(tenor)) return tenor
-        return typeof summary.apr === 'number' ? summary.apr : Number(summary.apr) || null
-      })(),
-      tenorRatePercent: (() => {
-        const tenor =
-          typeof summary.tenorRatePercent === 'number'
-            ? summary.tenorRatePercent
-            : Number(summary.tenorRatePercent)
-        if (Number.isFinite(tenor)) return tenor
-        return typeof summary.apr === 'number' ? summary.apr : Number(summary.apr) || null
-      })(),
+      apr:
+        pickFiniteNumber(summary.tenorRatePercent) ?? pickFiniteNumber(summary.apr),
+      tenorRatePercent:
+        pickFiniteNumber(summary.tenorRatePercent) ?? pickFiniteNumber(summary.apr),
       totalAmount: pickStr(summary, 'totalAmount', 'total_amount'),
       funding: pickStr(summary, 'funding'),
       amountOwed: pickStr(summary, 'amountOwed', 'amount_owed'),

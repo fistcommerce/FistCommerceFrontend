@@ -108,6 +108,7 @@ function pickString(record: Record<string, unknown>, ...keys: string[]): string 
   for (const key of keys) {
     const v = record[key]
     if (typeof v === 'string' && v.trim()) return v.trim()
+    if (typeof v === 'number' && Number.isFinite(v)) return String(v)
   }
   return null
 }

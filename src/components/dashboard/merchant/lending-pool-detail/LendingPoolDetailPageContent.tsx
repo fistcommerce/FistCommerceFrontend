@@ -58,12 +58,12 @@ function mergeRowsFromPoolMetrics<Row extends { label: string; value: string }>(
   metrics: PoolMetrics | null,
   resolvers: PoolMetricRowResolver,
 ): Row[] {
-  if (!metrics) return rows
   return rows.map((row) => {
     const resolver = resolvers[row.label]
     if (!resolver) return row
+    if (!metrics) return { ...row, value: '—' }
     const next = resolver(metrics)
-    return next ? { ...row, value: next } : row
+    return { ...row, value: next ?? '—' }
   })
 }
 
