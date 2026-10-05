@@ -21,10 +21,12 @@ import { setInvestorWalletDisplay } from '@/store/slices/investorDashboardSlice'
 import { setMerchantWalletDisplay } from '@/store/slices/merchantDashboardSlice'
 import { parseUserRole } from '@/utils/userRole'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import { useCircleWallet } from '@/circle/CircleWalletProvider'
-import { isCircleWalletEnabled } from '@/circle/enabled'
-import type { CircleAuthMethod } from '@/circle/types'
-import CircleConnectPanel from '@/components/onboarding/onboarding-steps/CircleConnectPanel'
+import {
+  CircleConnectPanel,
+  isCircleWalletEnabled,
+  useCircleWallet,
+  type CircleAuthMethod,
+} from '@/circle'
 import {
   ARC_TESTNET_CHAIN,
   MAINNET_CHAIN,

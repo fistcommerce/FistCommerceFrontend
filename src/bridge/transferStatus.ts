@@ -21,7 +21,7 @@ export const BRIDGE_AWAITING_MINT_STATUSES = [
 
 export const BRIDGE_READY_TO_CONTINUE_STATUSES = ['minted', 'deposit_pending', 'repay_pending'] as const
 
-export const BRIDGE_TERMINAL_STATUSES = ['deposited', 'repaid', 'failed'] as const
+export const BRIDGE_TERMINAL_STATUSES = ['deposited', 'repaid', 'failed', 'cancelled'] as const
 
 export type BridgeTransferStatus = BridgeTransfer['status']
 
@@ -47,6 +47,58 @@ export function isFailedBridgeStatus(status: string | null | undefined): boolean
   return String(status ?? '') === 'failed'
 }
 
+export function isCancelledBridgeStatus(status: string | null | undefined): boolean {
+  return String(status ?? '') === 'cancelled'
+}
+
+/**
+ * A transfer can be dropped from deposit/repay while it has not already been spent.
+ * USDC that already minted stays in the Arc wallet.
+ */
+export function canCancelBridgeTransfer(
+  transfer: Pick<BridgeTransfer, 'status' | 'deposit_tx_hash' | 'repay_tx_hash'>,
+): boolean {
+  const status = String(transfer.status ?? '')
+  if (
+    status === 'deposited' ||
+    status === 'repaid' ||
+    status === 'failed' ||
+    status === 'cancelled'
+  ) {
+    return false
+  }
+  if (transfer.deposit_tx_hash?.trim() || transfer.repay_tx_hash?.trim()) return false
+  return (
+    status === 'created' ||
+    status === 'burn_pending' ||
+    status === 'burned' ||
+    status === 'attesting' ||
+    status === 'minting' ||
+    status === 'minted' ||
+    status === 'deposit_pending' ||
+    status === 'repay_pending'
+  )
+}
+
+export function bridgeUsdcHasArrived(
+  transfer: Pick<BridgeTransfer, 'status' | 'mint_tx_hash'>,
+): boolean {
+  return (
+    Boolean(transfer.mint_tx_hash?.trim()) ||
+    ['minted', 'deposit_pending', 'repay_pending', 'deposited', 'repaid'].includes(
+      String(transfer.status ?? ''),
+    )
+  )
+}
+
+export function cancelBridgeConfirmMessage(
+  transfer: Pick<BridgeTransfer, 'status' | 'mint_tx_hash'>,
+): string {
+  return bridgeUsdcHasArrived(transfer)
+    ? 'Cancel using this USDC for this investment or repayment. It stays in your Arc wallet.'
+    : 'Cancel this Bridge. It will not be used for this investment or repayment.'
+}
+
 export function isActionableBridgeStatus(status: string | null | undefined): boolean {
   return (
     isAwaitingMintStatus(status) || isReadyToContinueStatus(status) || isFailedBridgeStatus(status)
@@ -70,6 +122,7 @@ export function bridgeListStatusLine(
     typeof transferOrStatus === 'string'
       ? { status: transferOrStatus, purpose, burn_tx_hash: undefined }
       : transferOrStatus
+  if (isCancelledBridgeStatus(transfer.status)) return 'Cancelled — USDC stays on Arc'
   if (transferNeedsSignature(transfer)) return 'Needs your signature'
   const tone = bridgeStatusTone(transfer.status)
   if (tone === 'failed') return 'Failed — needs attention'
@@ -175,29 +228,43 @@ export function buildBridgeSteps(
 ): BridgeStep[] {
   const status = String(transfer.status ?? '')
   const failed = status === 'failed'
-  const signed = hasBurnTx(transfer) || !['created', 'burn_pending', ''].includes(status)
-  const arrived =
-    Boolean(transfer.mint_tx_hash?.trim()) ||
-    ['minted', 'deposit_pending', 'repay_pending', 'deposited', 'repaid'].includes(status)
+  const cancelled = status === 'cancelled'
+  const signed =
+    hasBurnTx(transfer) || (!cancelled && !['created', 'burn_pending', ''].includes(status))
+  const arrived = bridgeUsdcHasArrived(transfer)
   const finished = status === 'deposited' || status === 'repaid'
   const finishTitle = transfer.purpose === 'repayment' ? 'Finish repayment' : 'Finish investment'
   const finishDone = transfer.purpose === 'repayment' ? 'Repayment submitted' : 'Invested in the pool'
 
-  const signState: BridgeStepState = signed ? 'done' : failed ? 'failed' : 'now'
-  const arriveState: BridgeStepState = arrived
-    ? 'done'
-    : !signed
-      ? 'left'
+  const signState: BridgeStepState = cancelled
+    ? signed
+      ? 'done'
+      : 'left'
+    : signed
+      ? 'done'
       : failed
         ? 'failed'
         : 'now'
-  const finishState: BridgeStepState = finished
-    ? 'done'
-    : !arrived
-      ? 'left'
-      : failed
-        ? 'failed'
-        : 'now'
+  const arriveState: BridgeStepState = cancelled
+    ? arrived
+      ? 'done'
+      : 'left'
+    : arrived
+      ? 'done'
+      : !signed
+        ? 'left'
+        : failed
+          ? 'failed'
+          : 'now'
+  const finishState: BridgeStepState = cancelled
+    ? 'left'
+    : finished
+      ? 'done'
+      : !arrived
+        ? 'left'
+        : failed
+          ? 'failed'
+          : 'now'
 
   return [
     {
@@ -208,7 +275,9 @@ export function buildBridgeSteps(
           ? 'Confirmed in your wallet'
           : signState === 'failed'
             ? 'Signature did not complete'
-            : 'Use Sign in wallet, then confirm the popup',
+            : cancelled
+              ? 'Cancelled before signing'
+              : 'Use Sign in wallet, then confirm the popup',
       state: signState,
     },
     {
@@ -219,16 +288,19 @@ export function buildBridgeSteps(
           ? 'USDC is on Arc'
           : arriveState === 'now'
             ? 'Usually about a minute — you can leave'
-            : arriveState === 'failed'
+            :         arriveState === 'failed'
               ? 'Did not arrive on Arc'
-              : 'Starts after you sign',
+              : cancelled
+                ? 'Cancelled before USDC arrived'
+                : 'Starts after you sign',
       state: arriveState,
     },
     {
       id: 'finish',
       title: finishTitle,
-      detail:
-        finishState === 'done'
+      detail: cancelled
+        ? 'Will not be used'
+        : finishState === 'done'
           ? finishDone
           : finishState === 'now'
             ? 'Confirm once more in your wallet'
@@ -278,14 +350,24 @@ export function bridgeStatusLabel(status: string | null | undefined, purpose?: B
       return 'Repaid'
     case 'failed':
       return 'Needs attention'
+    case 'cancelled':
+      return 'Cancelled'
     default:
       return 'In progress'
   }
 }
 
 export function bridgeStatusDescription(
-  transfer: Pick<BridgeTransfer, 'status' | 'purpose' | 'bridge_kit_source' | 'burn_tx_hash'>,
+  transfer: Pick<
+    BridgeTransfer,
+    'status' | 'purpose' | 'bridge_kit_source' | 'burn_tx_hash' | 'mint_tx_hash'
+  >,
 ): string {
+  if (isCancelledBridgeStatus(transfer.status)) {
+    return transfer.mint_tx_hash?.trim()
+      ? 'Cancelled. USDC stays in your Arc wallet.'
+      : 'Cancelled. This Bridge will not be used for this investment or repayment.'
+  }
   const source = transfer.bridge_kit_source?.replace(/_/g, ' ') || 'another network'
   if (transferNeedsSignature(transfer)) {
     return `Use Sign in wallet. Confirm in your wallet on ${source} to start moving USDC to Arc.`

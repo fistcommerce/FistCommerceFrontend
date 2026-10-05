@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import {
   bridgeListStatusLine,
+  bridgeStatusDescription,
   bridgeStatusLabel,
   buildBridgeSteps,
+  canCancelBridgeTransfer,
+  cancelBridgeConfirmMessage,
   compareBridgeTransfersByRecency,
   continuePathForTransfer,
   formatBridgeRelativeTime,
@@ -11,6 +14,7 @@ import {
   isActionableBridgeStatus,
   isAwaitingMintStatus,
   isFailedBridgeStatus,
+  isInFlightBridgeStatus,
   isReadyToContinueStatus,
   sortBridgeTransfersByRecency,
   trackerListPathForPurpose,
@@ -73,6 +77,67 @@ describe('bridge transfer status helpers', () => {
       }),
     ).toBe(false)
     expect(bridgeListStatusLine({ status: 'created', purpose: 'deposit' })).toBe('Needs your signature')
+  })
+
+  it('lets an unused transfer be cancelled and keeps cancelled out of the finish path', () => {
+    expect(canCancelBridgeTransfer({ status: 'minted' })).toBe(true)
+    expect(canCancelBridgeTransfer({ status: 'created' })).toBe(true)
+    expect(canCancelBridgeTransfer({ status: 'attesting' })).toBe(true)
+    expect(canCancelBridgeTransfer({ status: 'deposit_pending' })).toBe(true)
+    expect(canCancelBridgeTransfer({ status: 'repay_pending' })).toBe(true)
+    expect(
+      canCancelBridgeTransfer({
+        status: 'deposit_pending',
+        deposit_tx_hash: `0x${'d'.repeat(64)}`,
+      }),
+    ).toBe(false)
+    expect(
+      canCancelBridgeTransfer({
+        status: 'repay_pending',
+        repay_tx_hash: `0x${'e'.repeat(64)}`,
+      }),
+    ).toBe(false)
+    expect(canCancelBridgeTransfer({ status: 'deposited' })).toBe(false)
+    expect(canCancelBridgeTransfer({ status: 'repaid' })).toBe(false)
+    expect(canCancelBridgeTransfer({ status: 'failed' })).toBe(false)
+    expect(canCancelBridgeTransfer({ status: 'cancelled' })).toBe(false)
+
+    expect(isActionableBridgeStatus('cancelled')).toBe(false)
+    expect(isReadyToContinueStatus('cancelled')).toBe(false)
+    expect(isInFlightBridgeStatus('cancelled')).toBe(false)
+    expect(isAwaitingMintStatus('cancelled')).toBe(false)
+    expect(bridgeStatusLabel('cancelled')).toBe('Cancelled')
+    expect(bridgeListStatusLine('cancelled')).toBe('Cancelled — USDC stays on Arc')
+    expect(
+      cancelBridgeConfirmMessage({ status: 'minted' }),
+    ).toBe('Cancel using this USDC for this investment or repayment. It stays in your Arc wallet.')
+    expect(cancelBridgeConfirmMessage({ status: 'burned' })).toBe(
+      'Cancel this Bridge. It will not be used for this investment or repayment.',
+    )
+    expect(
+      bridgeStatusDescription({
+        status: 'cancelled',
+        bridge_kit_source: 'Arbitrum_Sepolia',
+        mint_tx_hash: `0x${'c'.repeat(64)}`,
+      }),
+    ).toBe('Cancelled. USDC stays in your Arc wallet.')
+    expect(
+      bridgeStatusDescription({ status: 'cancelled', bridge_kit_source: 'Arbitrum_Sepolia' }),
+    ).toBe('Cancelled. This Bridge will not be used for this investment or repayment.')
+
+    const unused = buildBridgeSteps({ status: 'cancelled', purpose: 'deposit' }, 'Arbitrum Sepolia')
+    expect(unused.map((step) => step.state)).toEqual(['left', 'left', 'left'])
+    expect(unused[2]?.detail).toBe('Will not be used')
+    const arrived = buildBridgeSteps(
+      {
+        status: 'cancelled',
+        purpose: 'repayment',
+        burn_tx_hash: `0x${'b'.repeat(64)}`,
+        mint_tx_hash: `0x${'c'.repeat(64)}`,
+      },
+      'Arbitrum Sepolia',
+    )
+    expect(arrived.map((step) => step.state)).toEqual(['done', 'done', 'left'])
   })
 
   it('marks signed vs remaining steps', () => {

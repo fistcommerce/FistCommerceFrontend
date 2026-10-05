@@ -25,6 +25,7 @@ type BridgeActivityPageProps = {
 }
 
 function statusDotClass(status: string): string {
+  if (status === 'cancelled') return 'bg-[#9CA3AF]'
   const tone = bridgeStatusTone(status)
   if (tone === 'failed') return 'bg-[#DC2626]'
   if (tone === 'ready') return 'bg-[#195EBC]'

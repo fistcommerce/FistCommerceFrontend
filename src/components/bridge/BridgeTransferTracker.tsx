@@ -13,10 +13,13 @@ import {
   bridgeWaitingHint,
   buildBridgeSteps,
   bridgeStepProgress,
+  canCancelBridgeTransfer,
+  cancelBridgeConfirmMessage,
   defaultInvestPoolSlug,
   formatBridgeStartedLine,
   hasBurnTx,
   isAwaitingMintStatus,
+  isCancelledBridgeStatus,
   isReadyToContinueStatus,
   trackerListPathForPurpose,
   parseBridgeAmountHuman,
@@ -106,7 +109,9 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
   )
 
   const [busy, setBusy] = useState(false)
-  const [busyKind, setBusyKind] = useState<'sign' | 'continue'>('continue')
+  const [busyKind, setBusyKind] = useState<'sign' | 'continue' | 'cancel'>('continue')
+  const [confirmingCancel, setConfirmingCancel] = useState(false)
+  const [cancelledLocal, setCancelledLocal] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [irisBusy, setIrisBusy] = useState(false)
   const [irisError, setIrisError] = useState<string | null>(null)
@@ -117,13 +122,16 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
     transfer.status === 'deposited' || transfer.status === 'repaid',
   )
 
-  const amount = parseBridgeAmountHuman(transfer.amount_human)
-  const needsSignature = transferNeedsSignature(transfer)
-  const awaitingMint = isAwaitingMintStatus(transfer.status) && !needsSignature
-  const readyToContinue = isReadyToContinueStatus(transfer.status)
-  const sourceLabel = sourceChainLabel(transfer.source_chain_id, transfer.bridge_kit_source)
-  const burnHref = explorerTxUrlForChain(transfer.source_chain_id, transfer.burn_tx_hash)
-  const mintHref = explorerTxUrlForChain(transfer.dest_chain_id, transfer.mint_tx_hash)
+  const viewTransfer: BridgeTransfer = cancelledLocal ? { ...transfer, status: 'cancelled' } : transfer
+  const amount = parseBridgeAmountHuman(viewTransfer.amount_human)
+  const needsSignature = transferNeedsSignature(viewTransfer)
+  const awaitingMint = isAwaitingMintStatus(viewTransfer.status) && !needsSignature
+  const readyToContinue = isReadyToContinueStatus(viewTransfer.status)
+  const cancelled = isCancelledBridgeStatus(viewTransfer.status)
+  const canCancel = canCancelBridgeTransfer(viewTransfer) && !completed
+  const sourceLabel = sourceChainLabel(viewTransfer.source_chain_id, viewTransfer.bridge_kit_source)
+  const burnHref = explorerTxUrlForChain(viewTransfer.source_chain_id, viewTransfer.burn_tx_hash)
+  const mintHref = explorerTxUrlForChain(viewTransfer.dest_chain_id, viewTransfer.mint_tx_hash)
   const homeTo = role === 'merchant' ? '/dashboard/merchant/overview' : '/dashboard/investor/overview'
   const listTo = trackerListPathForPurpose(transfer.purpose)
   const poolSlug = defaultInvestPoolSlug(transfer.metadata)
@@ -132,22 +140,24 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
       ? merchantRepayPaths(transfer.loan_request_id || repayContext.loanId).detail
       : `/dashboard/investor/lending-pool/${poolSlug}`
 
-  const failed = transfer.status === 'failed'
-  const steps = buildBridgeSteps(transfer, sourceLabel)
+  const failed = viewTransfer.status === 'failed'
+  const steps = buildBridgeSteps(viewTransfer, sourceLabel)
   const progress = bridgeStepProgress(steps)
   const headline = failed
     ? 'This Bridge needs attention'
-    : completed
-      ? transfer.purpose === 'repayment'
-        ? 'Repayment complete'
-        : 'Investment complete'
-      : needsSignature
-        ? 'Sign in your wallet to start'
-        : readyToContinue
-          ? transfer.purpose === 'repayment'
-            ? 'Ready to finish repayment'
-            : 'Ready to finish investing'
-          : 'Moving your USDC to Arc'
+    : cancelled
+      ? 'Cancelled'
+      : completed
+        ? transfer.purpose === 'repayment'
+          ? 'Repayment complete'
+          : 'Investment complete'
+        : needsSignature
+          ? 'Sign in your wallet to start'
+          : readyToContinue
+            ? transfer.purpose === 'repayment'
+              ? 'Ready to finish repayment'
+              : 'Ready to finish investing'
+            : 'Moving your USDC to Arc'
 
   const ensureLiveWallet = async () => {
     const live = await waitForLiveWallet(() => ({ ready, wallet, address }), {
@@ -260,6 +270,32 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
     }
   }
 
+  const handleCancel = async () => {
+    setError(null)
+    if (!accessToken?.trim()) {
+      setError('Sign in to cancel this Bridge.')
+      return
+    }
+    setBusyKind('cancel')
+    setBusy(true)
+    try {
+      await patchBridgeTransfer(accessToken, transfer.id, { status: 'cancelled' })
+      setCancelledLocal(true)
+      setConfirmingCancel(false)
+      await queryClient.invalidateQueries({ queryKey: ['bridge-transfer'] })
+      await queryClient.invalidateQueries({ queryKey: ['bridge-transfers'] })
+    } catch (e) {
+      setError(
+        toAppUserFacingError(e, {
+          fallback: 'Could not cancel this Bridge.',
+          context: transfer.purpose === 'repayment' ? 'repay' : 'invest',
+        }),
+      )
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const handleIrisCheck = async () => {
     setIrisError(null)
     if (!accessToken?.trim()) {
@@ -299,14 +335,18 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
     ? 'Connecting wallet'
     : busyKind === 'sign'
       ? 'Confirm in your wallet'
-      : transfer.purpose === 'repayment'
-        ? 'Finishing repayment'
-        : 'Finishing investment'
+      : busyKind === 'cancel'
+        ? 'Cancelling Bridge'
+        : transfer.purpose === 'repayment'
+          ? 'Finishing repayment'
+          : 'Finishing investment'
   const loadingDescription = reconnectPending
     ? 'Reconnect the wallet used for this session…'
     : busyKind === 'sign'
       ? `A wallet popup should appear for ${sourceLabel}. Open your wallet if you don’t see it.`
-      : 'Confirm in your wallet to finish. This is the last step.'
+      : busyKind === 'cancel'
+        ? 'Closing this Bridge so it will not be used for a deposit or repayment.'
+        : 'Confirm in your wallet to finish. This is the last step.'
 
   return (
     <>
@@ -334,11 +374,13 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
           >
             {failed
               ? 'Failed'
-              : needsSignature
-                ? 'Needs signature'
-                : awaitingMint
-                  ? 'Waiting'
-                  : bridgeStatusLabel(transfer.status, transfer.purpose)}
+              : cancelled
+                ? 'Cancelled'
+                : needsSignature
+                  ? 'Needs signature'
+                  : awaitingMint
+                    ? 'Waiting'
+                    : bridgeStatusLabel(viewTransfer.status, viewTransfer.purpose)}
           </p>
           <h2 className="text-[#0B1220] text-[22px] sm:text-[26px] font-bold leading-tight mt-1">{headline}</h2>
           <p className="text-[#0B1220] text-[28px] font-semibold leading-tight mt-3">
@@ -350,7 +392,7 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
           <p className="text-[#6B7488] text-[13px] mt-1">{formatBridgeStartedLine(transfer)}</p>
         </div>
 
-        <p className="text-[#4B5563] text-[14px] leading-relaxed">{bridgeStatusDescription(transfer)}</p>
+        <p className="text-[#4B5563] text-[14px] leading-relaxed">{bridgeStatusDescription(viewTransfer)}</p>
 
         {awaitingMint && !failed && !needsSignature ? (
           <p className="rounded-[8px] bg-[#F8FAFC] border border-[#E6E8EC] px-4 py-3 text-[#6B7488] text-[13px] leading-relaxed">
@@ -437,8 +479,34 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
           <p className="text-[#DC2626] text-[13px]">{transfer.error_message}</p>
         ) : null}
 
+        {confirmingCancel && canCancel ? (
+          <div className="rounded-[8px] border border-[#E6E8EC] bg-[#F8FAFC] px-4 py-3 flex flex-col gap-3">
+            <p className="text-[#0B1220] text-[14px] leading-relaxed">
+              {cancelBridgeConfirmMessage(viewTransfer)}
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => void handleCancel()}
+                disabled={busy || reconnectPending}
+                className="h-[46px] px-5 rounded-[6px] bg-white border border-[#FECACA] text-[#DC2626] text-[15px] font-medium hover:bg-[#FEF2F2] disabled:opacity-60"
+              >
+                Confirm cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmingCancel(false)}
+                disabled={busy}
+                className="h-[46px] px-5 rounded-[6px] bg-[#EEF2F6] text-[#195EBC] text-[15px] font-medium hover:bg-[#E5ECF4] disabled:opacity-60"
+              >
+                Keep this Bridge
+              </button>
+            </div>
+          </div>
+        ) : null}
+
         <div className="flex flex-col sm:flex-row gap-3">
-          {needsSignature && !failed ? (
+          {needsSignature && !failed && !confirmingCancel ? (
             <button
               type="button"
               onClick={() => void handleSign()}
@@ -448,7 +516,7 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
               {signLabel}
             </button>
           ) : null}
-          {readyToContinue && !completed ? (
+          {readyToContinue && !completed && !confirmingCancel ? (
             <button
               type="button"
               onClick={() => void handleContinue()}
@@ -465,6 +533,16 @@ export default function BridgeTransferTracker({ transfer, role }: BridgeTransfer
             >
               {transfer.purpose === 'repayment' ? 'View receivable' : 'View pool'}
             </Link>
+          ) : null}
+          {canCancel && !confirmingCancel ? (
+            <button
+              type="button"
+              onClick={() => setConfirmingCancel(true)}
+              disabled={busy || reconnectPending}
+              className="h-[46px] px-5 rounded-[6px] bg-white border border-[#D9DEE8] text-[#0B1220] text-[15px] font-medium hover:bg-[#F8FAFC] disabled:opacity-60"
+            >
+              Cancel
+            </button>
           ) : null}
           <Link
             to={listTo}
