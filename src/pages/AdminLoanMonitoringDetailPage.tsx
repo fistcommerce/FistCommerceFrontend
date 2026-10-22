@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
+import { fetchReceivableEvidence, type ReceivableEvidenceBundle } from '@/api/evidence'
+import EvidenceBundlePanel from '@/components/evidence/EvidenceBundlePanel'
 import {
   loanMonitoringPrivilegedActionLabels,
   PrivilegedActionFeedbackLayer,
@@ -51,6 +53,23 @@ const AdminLoanMonitoringDetailPage = () => {
   const detail = useAppSelector((s) =>
     loanId ? selectLoanMonitoringDetail(s.adminLoanMonitoring, loanId) : null,
   )
+
+  const [evidence, setEvidence] = useState<ReceivableEvidenceBundle | null>(null)
+  useEffect(() => {
+    if (!loanId?.trim() || !accessToken?.trim() || sessionKind !== 'admin') return
+    let cancelled = false
+    void fetchReceivableEvidence(accessToken, loanId)
+      .then((data) => {
+        if (!cancelled) setEvidence(data)
+      })
+      .catch(() => {
+        if (!cancelled) setEvidence(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [loanId, accessToken, sessionKind, detail?.loanLifecycleStatus])
+
 
   const backHref = resolveAdminLoanMonitoringBackTarget(
     searchParams.get(ADMIN_LOAN_MONITORING_RETURN_QUERY_KEY),
@@ -207,19 +226,27 @@ const AdminLoanMonitoringDetailPage = () => {
       ) : null}
 
       {detail ? (
-        <AdminLoanMonitoringDetailView
-          detail={detail}
-          onBack={handleBack}
-          onApprove={handleApprove}
-          onReject={handleReject}
-          onApproveFunding={handleApproveFunding}
-          onCancelFunding={handleCancelFunding}
-          onInitiatePayout={handleInitiatePayout}
-          onMarkDefaulted={handleMarkDefaulted}
-          onWriteOffShortfall={handleWriteOffShortfall}
-          actionLoading={actionLoading}
-          actionKind={actionKind}
-        />
+        <>
+          {evidence ? (
+            <div className="w-full max-w-[1280px] mx-auto px-4 sm:px-6 pt-4">
+              <EvidenceBundlePanel bundle={evidence} />
+            </div>
+          ) : null}
+          <AdminLoanMonitoringDetailView
+            detail={detail}
+            onBack={handleBack}
+            onApprove={handleApprove}
+            onReject={handleReject}
+            onApproveFunding={handleApproveFunding}
+            onCancelFunding={handleCancelFunding}
+            onInitiatePayout={handleInitiatePayout}
+            onMarkDefaulted={handleMarkDefaulted}
+            onWriteOffShortfall={handleWriteOffShortfall}
+            actionLoading={actionLoading}
+            actionKind={actionKind}
+            payoutReadiness={evidence?.payoutReadiness ?? null}
+          />
+        </>
       ) : !detailLoading ? (
         <div className="w-full max-w-[1280px] mx-auto pb-10">
           <button

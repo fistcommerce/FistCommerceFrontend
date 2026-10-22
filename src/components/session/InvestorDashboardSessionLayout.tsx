@@ -24,15 +24,17 @@ export default function InvestorDashboardSessionLayout() {
   const sessionExpired = useAppSelector((s) => s.auth.sessionExpired)
   const status = useAppSelector(selectInvestorDashboardStatus)
   const error = useAppSelector(selectInvestorDashboardError)
+  const sessionWallet = useAppSelector((s) => s.auth.wallet)
   const { isConnected, address } = useActiveWallet()
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [loadingDismissed, setLoadingDismissed] = useState(false)
   const didKickoffRef = useRef(false)
 
   useEffect(() => {
-    if (!isConnected || !address) return
-    dispatch(setInvestorWalletDisplay(topBarWalletFromAddress(address)))
-  }, [dispatch, isConnected, address])
+    const shown = isConnected && address ? address : sessionWallet
+    if (!shown) return
+    dispatch(setInvestorWalletDisplay(topBarWalletFromAddress(shown)))
+  }, [dispatch, isConnected, address, sessionWallet])
 
   useEffect(() => {
     didKickoffRef.current = false

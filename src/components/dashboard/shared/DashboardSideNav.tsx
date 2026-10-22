@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useLogout } from '@privy-io/react-auth'
+import { useLogout, usePrivy } from '@privy-io/react-auth'
 import { Link, useLocation } from 'react-router-dom'
 
 import logo from '@/assets/logo.png'
@@ -56,6 +56,7 @@ const DashboardSideNav = ({
   const dispatch = useAppDispatch()
   const isKycVerified = useAppSelector(selectIsKycVerified)
   const { logout } = useLogout()
+  const { unlinkWallet } = usePrivy()
   const { wallet } = useActiveWallet()
   const [loggingOut, setLoggingOut] = useState(false)
   const location = useLocation()
@@ -124,6 +125,28 @@ const DashboardSideNav = ({
             icon: documentNavIcon,
             isActive: pathname.startsWith(`${base}/receivables`),
           },
+          ...(isKycVerified
+            ? [
+                {
+                  path: `${base}/documents`,
+                  label: 'Documents',
+                  icon: documentNavIcon,
+                  isActive: pathname.startsWith(`${base}/documents`),
+                },
+              ]
+            : []),
+        ]
+      : []
+
+  const investorDocsItem: DashboardSideNavItem[] =
+    base === '/dashboard/investor' && isKycVerified
+      ? [
+          {
+            path: `${base}/documents`,
+            label: 'Pool documents',
+            icon: documentNavIcon,
+            isActive: pathname.startsWith(`${base}/documents`),
+          },
         ]
       : []
 
@@ -135,14 +158,20 @@ const DashboardSideNav = ({
   }
 
   const allNavItems = isKycVerified
-    ? [opportunitiesNavItem, ...merchantExtraItems, navItems[navItems.length - 1], supportItem]
+    ? [
+        opportunitiesNavItem,
+        ...merchantExtraItems,
+        ...investorDocsItem,
+        navItems[navItems.length - 1],
+        supportItem,
+      ]
     : [...navItems.slice(0, 2), ...merchantExtraItems, ...navItems.slice(2), supportItem]
 
   const handleLogout = () => {
     if (loggingOut) return
     onRequestClose?.()
     setLoggingOut(true)
-    void logoutUserSession(dispatch, wallet, logout).catch(() => {
+    void logoutUserSession(dispatch, wallet, logout, { unlinkWallet }).catch(() => {
       setLoggingOut(false)
     })
   }

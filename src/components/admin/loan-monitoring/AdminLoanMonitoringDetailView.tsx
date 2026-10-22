@@ -30,6 +30,11 @@ function actionLabel(loading: boolean, kind: AdminLoanMonitoringActionKind | nul
   return label
 }
 
+type PayoutReadiness = {
+  ready: boolean
+  failures: { code: string; message: string }[]
+} | null
+
 type AdminLoanMonitoringDetailViewProps = {
   detail: LoanMonitoringDetailView
   onBack: () => void
@@ -42,6 +47,7 @@ type AdminLoanMonitoringDetailViewProps = {
   onWriteOffShortfall: () => void
   actionLoading: boolean
   actionKind: AdminLoanMonitoringActionKind | null
+  payoutReadiness?: PayoutReadiness
 }
 
 export function AdminLoanMonitoringDetailView({
@@ -56,6 +62,7 @@ export function AdminLoanMonitoringDetailView({
   onWriteOffShortfall,
   actionLoading,
   actionKind,
+  payoutReadiness = null,
 }: AdminLoanMonitoringDetailViewProps) {
   const {
     receivableName,
@@ -108,10 +115,16 @@ export function AdminLoanMonitoringDetailView({
   const canReject = admin.canReject && !actionLoading
   const canApprove = admin.canApprove && !actionLoading
   const canFundNow = canApproveFunding && !actionLoading
+  const evidenceReady = payoutReadiness == null || payoutReadiness.ready
   const canPayoutNow =
+    Boolean(receivableId?.trim()) &&
+    fundingApprovalDone &&
+    !isPaidOut &&
+    !actionLoading &&
+    evidenceReady
+  // Cancel stays available until funds are released (does not require evidence checklist).
+  const canCancelFundingNow =
     Boolean(receivableId?.trim()) && fundingApprovalDone && !isPaidOut && !actionLoading
-  // Cancel stays available until funds are released — same lifecycle gate as payout.
-  const canCancelFundingNow = canPayoutNow
   const showLoanAcceptance = admin.canApprove || admin.canReject
   const canMarkDefaulted =
     admin.canMarkDefaulted && defaultManagement.canMarkDefaulted && !actionLoading
@@ -283,6 +296,13 @@ export function AdminLoanMonitoringDetailView({
               </button>
             </div>
           )}
+          {!isPaidOut && payoutReadiness && !payoutReadiness.ready ? (
+            <ul className="mt-3 list-disc pl-5 text-[#92400E] text-[13px] space-y-1">
+              {payoutReadiness.failures.map((f) => (
+                <li key={f.code}>{f.message}</li>
+              ))}
+            </ul>
+          ) : null}
           {!isPaidOut && !canPayoutNow && !canCancelFundingNow ? (
             <p className="mt-3 text-[#8B92A3] text-[13px] leading-relaxed">
               {fundingApprovalDone

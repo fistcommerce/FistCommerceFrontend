@@ -1,0 +1,59 @@
+[
+  {
+    "page": "01-architecture.html",
+    "parts": [
+      "01-architecture-p02-src-circle-index.ts.png"
+    ]
+  },
+  {
+    "page": "02-frontend-sdk-adapter.html",
+    "parts": [
+      "02-frontend-sdk-adapter-p02-src-circle-sdk.ts.png",
+      "02-frontend-sdk-adapter-p03-src-circle-sdk.ts.png",
+      "02-frontend-sdk-adapter-p04-src-circle-sdk.ts.png",
+      "02-frontend-sdk-adapter-p05-t1-src-circle-adapter.ts.png",
+      "02-frontend-sdk-adapter-p05-t2-src-circle-adapter.ts.png"
+    ]
+  },
+  {
+    "page": "03-frontend-api-session.html",
+    "parts": [
+      "03-frontend-api-session-p02-src-circle-api.ts.png",
+      "03-frontend-api-session-p03-t1-src-circle-api.ts.png",
+      "03-frontend-api-session-p03-t2-src-circle-api.ts.png",
+      "03-frontend-api-session-p04-t1-src-circle-api.ts.png",
+      "03-frontend-api-session-p04-t2-src-circle-api.ts.png",
+      "03-frontend-api-session-p05-t1-src-circle-chainMap.ts.png",
+      "03-frontend-api-session-p05-t2-src-circle-chainMap.ts.png",
+      "03-frontend-api-session-p06-t1-src-circle-CircleWalletProvider.tsx.png",
+      "03-frontend-api-session-p06-t2-src-circle-CircleWalletProvider.tsx.png"
+    ]
+  },
+  {
+    "page": "04-backend-w3s-proxy.html",
+    "parts": [
+      "04-backend-w3s-proxy-p02-circle_handler-urls.py.png",
+      "04-backend-w3s-proxy-p03-circle_handler-circle_client.py.png",
+      "04-backend-w3s-proxy-p04-t1-circle_handler-circle_client.py.png",
+      "04-backend-w3s-proxy-p04-t2-circle_handler-circle_client.py.png",
+      "04-backend-w3s-proxy-p05-circle_handler-circle_client.py.png",
+      "04-backend-w3s-proxy-p06-t1-circle_handler-services.py.png",
+      "04-backend-w3s-proxy-p06-t2-circle_handler-services.py.png",
+      "04-backend-w3s-proxy-p07-circle_handler-services.py.png",
+      "04-backend-w3s-proxy-p08-t1-circle_handler-services.py.png",
+      "04-backend-w3s-proxy-p08-t2-circle_handler-services.py.png",
+      "04-backend-w3s-proxy-p09-t1-circle_handler-models.py.png",
+      "04-backend-w3s-proxy-p09-t2-circle_handler-models.py.png"
+    ]
+  },
+  {
+    "page": "05-cctp-bridge-kit.html",
+    "parts": [
+      "05-cctp-bridge-kit-p02-t1-src-bridge-cctpBridge.ts.png",
+      "05-cctp-bridge-kit-p02-t2-src-bridge-cctpBridge.ts.png",
+      "05-cctp-bridge-kit-p03-t1-utils-cctp.py.png",
+      "05-cctp-bridge-kit-p03-t2-utils-cctp.py.png",
+      "05-cctp-bridge-kit-p04-bridge_handler-iris.py.png"
+    ]
+  }
+]

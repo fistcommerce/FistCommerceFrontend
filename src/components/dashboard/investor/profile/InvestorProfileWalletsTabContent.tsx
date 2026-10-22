@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react'
-import { useLogout } from '@privy-io/react-auth'
+import { useLogout, usePrivy } from '@privy-io/react-auth'
 
 import walletIcon from '@/assets/Icon (1).png'
 import EmbeddedWalletKeyBackup from '@/components/wallet/EmbeddedWalletKeyBackup'
@@ -37,6 +37,7 @@ function formatWalletBalanceDisplay(formatted: string): string {
 const InvestorProfileWalletsTabContent = () => {
   const dispatch = useAppDispatch()
   const { logout } = useLogout()
+  const { unlinkWallet } = usePrivy()
   const { isConnected, address, walletClientType, wallet } = useActiveWallet()
   const chainId = useAppSelector((s) => s.wallet.chainId)
   const [disconnectPending, setDisconnectPending] = useState(false)
@@ -138,10 +139,12 @@ const InvestorProfileWalletsTabContent = () => {
     setDisconnectPending(true)
     try {
       resetUserSession(dispatch)
-      await disconnectPrivySession(wallet, logout)
+      await disconnectPrivySession(wallet, logout, { unlinkWallet })
       window.location.replace('/onboarding/choose-role')
     } catch (e) {
       console.error(e)
+      // Still leave the app session even if Privy teardown partially fails.
+      window.location.replace('/onboarding/choose-role')
     } finally {
       setDisconnectPending(false)
     }

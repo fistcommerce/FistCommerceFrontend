@@ -54,7 +54,7 @@ export default function ArbitrumSepoliaWalletEnforcer() {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const role = useAppSelector((s) => s.auth.role)
-  const { ready: privyReady, logout } = usePrivy()
+  const { ready: privyReady, logout, unlinkWallet } = usePrivy()
   const { wallet, isConnected, address, ready: walletsReady } = useActiveWallet()
   const chainId = useAppSelector((s) => s.wallet.chainId)
   const [switchError, setSwitchError] = useState<string | null>(null)
@@ -115,7 +115,7 @@ export default function ArbitrumSepoliaWalletEnforcer() {
   }, [wrongNetwork, skipEnforcer])
 
   const handleLogoutWrongNetwork = useCallback(async () => {
-    await disconnectPrivySession(wallet, logout)
+    await disconnectPrivySession(wallet, logout, { unlinkWallet })
     const { accessToken, sessionKind } = store.getState().auth
     const currentPathname = typeof window !== 'undefined' ? window.location.pathname : undefined
     const toAdminLogin = shouldRedirectToAdminLogin({
@@ -125,13 +125,14 @@ export default function ArbitrumSepoliaWalletEnforcer() {
     })
     resetUserSession(dispatch)
     window.location.replace(toAdminLogin ? ADMIN_LOGIN_PATH : '/onboarding/choose-role')
-  }, [wallet, logout, dispatch])
+  }, [wallet, logout, unlinkWallet, dispatch])
 
   const handleChooseDifferentWallet = useCallback(async () => {
     if (choosingWallet) return
     setChoosingWallet(true)
     try {
-      await disconnectLinkedWalletOnly(wallet)
+      // Must end Privy session — linked-only disconnect leaves MetaMask in useWallets().
+      await disconnectLinkedWalletOnly(wallet, { logout, unlinkWallet })
       dispatch(resetWallet())
       const parsedRole = parseUserRole(role)
       if (parsedRole) {
@@ -142,7 +143,7 @@ export default function ArbitrumSepoliaWalletEnforcer() {
     } finally {
       setChoosingWallet(false)
     }
-  }, [choosingWallet, wallet, dispatch, role, navigate])
+  }, [choosingWallet, wallet, logout, unlinkWallet, dispatch, role, navigate])
 
   const primaryChain = dualDeployed ? MAINNET_CHAIN : supported[0]
   const secondaryChain = dualDeployed ? TESTNET_CHAIN : null

@@ -30,6 +30,7 @@ const TITLE_BY_SEGMENT: Record<string, string> = {
   governance: 'Governance Queue',
   'payout-withdrawals': 'Payout & Withdrawal Management',
   receivables: 'Receivables Management',
+  'evidence-register': 'Merchant Evidence Register',
   merchants: 'Merchants Management',
   investors: 'Investors Management',
   'loan-monitoring': 'Loan Monitoring',

@@ -9,7 +9,7 @@ import { createWalletLoginSignable, postWalletLogin } from '@/api/walletSession'
 import privyIcon from '@/assets/Icon (1).png'
 import { isSafeDashboardReturnPath, resolveDashboardReturnTo, saveDashboardReturnTo } from '@/session/dashboardReturnTo'
 import { applyWalletLoginResponse } from '@/session/loginBridge'
-import { disconnectLinkedWalletOnly } from '@/session/disconnectPrivySession'
+import { disconnectPrivySession } from '@/session/disconnectPrivySession'
 import { consumeSessionEndMessage } from '@/session/sessionEnd'
 import { logoutUserSession } from '@/session/logoutUserSession'
 import { unlockAfterConnectWallet } from '@/state/session'
@@ -51,7 +51,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
   const location = useLocation()
   const navigate = useNavigate()
 
-  const { ready: privyReady, login, connectWallet, logout } = usePrivy()
+  const { ready: privyReady, login, connectWallet, logout, unlinkWallet } = usePrivy()
   const { wallet, address, isConnected, walletClientType, ready: walletsReady, setActiveWalletId } =
     useActiveWallet()
   const chainId = useAppSelector((s) => s.wallet.chainId)
@@ -84,7 +84,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
   const handleFullLogout = () => {
     if (loggingOut) return
     setLoggingOut(true)
-    void logoutUserSession(dispatch, wallet, logout).catch(() => {
+    void logoutUserSession(dispatch, wallet, logout, { unlinkWallet }).catch(() => {
       setLoggingOut(false)
     })
   }
@@ -147,9 +147,24 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
     setRowError(null)
     setDisconnecting(true)
     try {
-      await disconnectLinkedWalletOnly(wallet)
+      // External wallets stay in Privy's `useWallets()` until the Privy session ends.
+      // Linked-only disconnect is a no-op for MetaMask — must call logout.
       setActiveWalletId(null)
       dispatch(resetWallet())
+      dispatch(
+        patchAuth({
+          accessToken: null,
+          refreshToken: null,
+          sessionKind: null,
+          wallet: null,
+          chainId: null,
+          authIssuedAt: null,
+          sessionExpired: false,
+          sessionExpiredReason: null,
+        }),
+      )
+      await disconnectPrivySession(wallet, logout, { unlinkWallet })
+      await persistor.flush()
     } catch (e) {
       setRowError(
         toAppUserFacingError(e, {

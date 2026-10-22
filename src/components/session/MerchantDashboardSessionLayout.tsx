@@ -10,7 +10,8 @@ import {
   selectMerchantDashboardStatus,
 } from '@/store/selectors/merchantDashboardSelectors'
 import { selectIsKycVerified } from '@/store/selectors/sessionSelectors'
-import { refreshMerchantDashboard } from '@/store/slices/merchantDashboardSlice'
+import { refreshMerchantDashboard, setMerchantWalletDisplay } from '@/store/slices/merchantDashboardSlice'
+import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { refreshMerchantReceivables } from '@/store/slices/merchantReceivablesSlice'
 
 export default function MerchantDashboardSessionLayout() {
@@ -21,10 +22,19 @@ export default function MerchantDashboardSessionLayout() {
   const status = useAppSelector(selectMerchantDashboardStatus)
   const error = useAppSelector(selectMerchantDashboardError)
   const kycVerified = useAppSelector(selectIsKycVerified)
+  const sessionWallet = useAppSelector((s) => s.auth.wallet)
+  const { isConnected, address } = useActiveWallet()
   const [errorDismissed, setErrorDismissed] = useState(false)
   const [loadingDismissed, setLoadingDismissed] = useState(false)
   const didKickoffRef = useRef(false)
   const didReceivablesRef = useRef(false)
+
+  useEffect(() => {
+    const shown = isConnected && address ? address : sessionWallet
+    if (!shown) return
+    const display = shown.length <= 12 ? shown : `${shown.slice(0, 6)}...${shown.slice(-4)}`
+    dispatch(setMerchantWalletDisplay(display))
+  }, [dispatch, isConnected, address, sessionWallet])
 
   useEffect(() => {
     didKickoffRef.current = false

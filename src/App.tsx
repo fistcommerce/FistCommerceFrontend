@@ -62,6 +62,9 @@ import AdminGovernanceQueuePage from '@/pages/AdminGovernanceQueuePage'
 import AdminLoanMonitoringDetailPage from '@/pages/AdminLoanMonitoringDetailPage'
 import AdminLoanMonitoringPage from '@/pages/AdminLoanMonitoringPage'
 import AdminSectionPlaceholderPage from '@/pages/AdminSectionPlaceholderPage'
+import AdminEvidenceRegisterPage from '@/pages/AdminEvidenceRegisterPage'
+import InvestorPoolDocumentsPage from '@/pages/InvestorPoolDocumentsPage'
+import MerchantDocumentsPage from '@/pages/MerchantDocumentsPage'
 import AdminTransactionsPage from '@/pages/AdminTransactionsPage'
 import AdminSettingsPage from '@/pages/AdminSettingsPage'
 import AdminSupportDisputeInfoPage from '@/pages/AdminSupportDisputeInfoPage'
@@ -329,6 +332,14 @@ const router = createBrowserRouter([
             element: <InvestorLendingPoolDetailPage />,
           },
           {
+            path: 'documents',
+            element: (
+              <KycFinancialRoutesGuard>
+                <InvestorPoolDocumentsPage />
+              </KycFinancialRoutesGuard>
+            ),
+          },
+          {
             path: 'support',
             element: <DashboardSupportContactPage />,
           },
@@ -374,6 +385,10 @@ const router = createBrowserRouter([
               {
                 path: 'payout-withdrawals',
                 element: <AdminPayoutWithdrawalManagementPage />,
+              },
+              {
+                path: 'evidence-register',
+                element: <AdminEvidenceRegisterPage />,
               },
               {
                 path: 'receivables',
@@ -490,6 +505,14 @@ const router = createBrowserRouter([
           {
             path: 'receivables',
             element: <MerchantDashboardPage />,
+          },
+          {
+            path: 'documents',
+            element: (
+              <KycFinancialRoutesGuard>
+                <MerchantDocumentsPage />
+              </KycFinancialRoutesGuard>
+            ),
           },
           {
             path: 'profile',

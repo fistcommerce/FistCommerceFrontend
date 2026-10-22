@@ -24,7 +24,7 @@ export default function SessionExpiredModal() {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const { logout } = usePrivy()
+  const { logout, unlinkWallet } = usePrivy()
   const { wallet } = useActiveWallet()
   const sessionExpired = useAppSelector((s) => s.auth.sessionExpired)
   const sessionExpiredReason = useAppSelector((s) => s.auth.sessionExpiredReason)
@@ -68,7 +68,7 @@ export default function SessionExpiredModal() {
       })
       return
     }
-    void logoutUserSession(dispatch, wallet, logout).catch(() => {
+    void logoutUserSession(dispatch, wallet, logout, { unlinkWallet }).catch(() => {
       setLoggingOut(false)
     })
   }

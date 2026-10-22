@@ -59,6 +59,7 @@ const NAV_ITEMS: AdminNavItem[] = [
   { to: `${basePath}/investors`, label: 'Investors', iconSrc: coinIcon },
   { to: `${basePath}/loan-monitoring`, label: 'Loan Monitoring', iconSrc: adminSidebarMoney },
   { to: `${basePath}/receivables`, label: 'Receivables', iconSrc: adminSidebarDocument },
+  { to: `${basePath}/evidence-register`, label: 'Evidence Register', iconSrc: adminSidebarDocument },
   { to: `${basePath}/transactions`, label: 'Transactions', iconSrc: adminIconTransactions },
   { to: `${basePath}/support`, label: 'Support and Dispute Info', iconSrc: adminIconSupport },
   { to: `${basePath}/settings`, label: 'Settings', iconSrc: adminIconSettings },

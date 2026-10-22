@@ -23,6 +23,7 @@ import {
   riskTierSelectLabel,
 } from '@/utils/loanTierCalculations'
 import FistReceivableAgreementModal from '@/components/dashboard/merchant/loan/FistReceivableAgreementModal'
+import { FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION } from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
 
 type ApplyLoanLocationState = {
   restoreDraft?: boolean
@@ -307,6 +308,11 @@ const MerchantApplyLoanPage = () => {
       return
     }
 
+    if (!hasReadAgreement) {
+      setSubmitError('Please read and confirm the Fist Receivable Financing Agreement before submitting.')
+      return
+    }
+
     if (!allChecked) {
       setSubmitError('Please complete all required acknowledgements to continue.')
       return
@@ -316,6 +322,17 @@ const MerchantApplyLoanPage = () => {
     form.append('loan_amount', String(amountNum))
     form.append('risk_tier_id', String(selectedTier.id))
     form.append('document', selectedDocument)
+    form.append('agreement_version', FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION)
+    form.append('financing_amount', String(amountNum))
+    if (repaymentAmount.trim()) {
+      const repayNum = parseLoanAmountInput(repaymentAmount)
+      if (repayNum != null) form.append('repayment_amount', String(repayNum))
+    }
+    if (loanInterest.trim()) {
+      const chargesNum = parseLoanAmountInput(loanInterest)
+      if (chargesNum != null) form.append('charges', String(chargesNum))
+    }
+    form.append('signature', 'wallet-ack')
 
     setSubmitting(true)
     try {
