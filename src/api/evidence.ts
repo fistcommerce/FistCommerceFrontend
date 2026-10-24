@@ -162,13 +162,17 @@ export async function verifyPayoutDestination(
   return parseJsonResponse(res)
 }
 
-function evidenceQuery(range?: EvidenceDateRange, extra?: Record<string, string>): string {
+function evidenceQuery(
+  range?: EvidenceDateRange,
+  extra?: Record<string, string>,
+  keepEmpty: string[] = [],
+): string {
   const params = new URLSearchParams()
   if (range?.from) params.set('from', range.from)
   if (range?.to) params.set('to', range.to)
   if (extra) {
     for (const [key, value] of Object.entries(extra)) {
-      if (value) params.set(key, value)
+      if (value || keepEmpty.includes(key)) params.set(key, value)
     }
   }
   const query = params.toString()
@@ -194,7 +198,7 @@ async function downloadEvidenceFile(
 export async function fetchEvidenceRegister(
   accessToken: string,
   range?: EvidenceDateRange,
-): Promise<{ rows: EvidenceRegisterRow[]; count: number }> {
+): Promise<{ documents: ReceivableEvidenceBundle[]; count: number }> {
   const res = await fetchWithAuthRecovery(
     apiUrl(`/evidence/register/${evidenceQuery(range)}`),
     {
@@ -211,10 +215,15 @@ export async function downloadEvidenceRegisterExport(
   accessToken: string,
   exportFormat: 'csv' | 'xlsx' | 'pdf',
   range?: EvidenceDateRange,
+  loanIds: string[] = [],
 ): Promise<Blob> {
   return downloadEvidenceFile(
     accessToken,
-    `/evidence/register/export/${evidenceQuery(range, { export_format: exportFormat })}`,
+    `/evidence/register/export/${evidenceQuery(
+      range,
+      { export_format: exportFormat, loan_ids: loanIds.join(',') },
+      ['loan_ids'],
+    )}`,
   )
 }
 
@@ -252,16 +261,23 @@ export async function fetchMerchantDocuments(
 
 export async function downloadPoolDocumentsExport(
   accessToken: string,
-  audience: 'investor' | 'merchant',
+  audience: 'investor' | 'merchant' | 'admin',
   exportFormat: 'csv' | 'xlsx' | 'pdf',
   range?: EvidenceDateRange,
+  loanIds: string[] = [],
 ): Promise<Blob> {
   const path =
-    audience === 'merchant'
-      ? '/evidence/merchant/documents/export/'
-      : '/evidence/investor/pool-documents/export/'
+    audience === 'admin'
+      ? '/evidence/register/export/'
+      : audience === 'merchant'
+        ? '/evidence/merchant/documents/export/'
+        : '/evidence/investor/pool-documents/export/'
   return downloadEvidenceFile(
     accessToken,
-    `${path}${evidenceQuery(range, { export_format: exportFormat })}`,
+    `${path}${evidenceQuery(
+      range,
+      { export_format: exportFormat, loan_ids: loanIds.join(',') },
+      ['loan_ids'],
+    )}`,
   )
 }

@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-import { fetchInvestorPoolDocuments, fetchMerchantDocuments, downloadPoolDocumentsExport, type ReceivableEvidenceBundle } from '@/api/evidence'
+import { fetchInvestorPoolDocuments, fetchMerchantDocuments, fetchEvidenceRegister, downloadPoolDocumentsExport, type ReceivableEvidenceBundle } from '@/api/evidence'
 import { toUserFacingError } from '@/api/client'
 import primeChevronRight from '@/assets/prime_chevron-right.png'
 import docChecked from '@/assets/doc-checked.png'
@@ -80,6 +80,25 @@ function receivableTitle(bundle: ReceivableEvidenceBundle): string {
   return bundle.loanName || shortId(bundle.receivableId) || shortId(bundle.loanId)
 }
 
+function formatAppliedPeriod(range: { from?: string; to?: string }): string | null {
+  const pretty = (iso: string) => {
+    const [year, month, day] = iso.split('-').map(Number)
+    if (!year || !month || !day) return iso
+    return new Date(Date.UTC(year, month - 1, day)).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
+  }
+  if (range.from && range.to) {
+    return `Showing receivables from ${pretty(range.from)} to ${pretty(range.to)}.`
+  }
+  if (range.from) return `Showing receivables from ${pretty(range.from)}.`
+  if (range.to) return `Showing receivables through ${pretty(range.to)}.`
+  return null
+}
+
 function matchesSearch(bundle: ReceivableEvidenceBundle, q: string): boolean {
   if (!q) return true
   const hay = [
@@ -100,7 +119,7 @@ function matchesSearch(bundle: ReceivableEvidenceBundle, q: string): boolean {
 export default function InvestorPoolDocumentsContent({
   audience = 'investor',
 }: {
-  audience?: 'investor' | 'merchant'
+  audience?: 'investor' | 'merchant' | 'admin'
 }) {
   const accessToken = useAppSelector((s) => s.auth.accessToken) || ''
   const [docs, setDocs] = useState<ReceivableEvidenceBundle[]>([])
@@ -119,9 +138,13 @@ export default function InvestorPoolDocumentsContent({
     setPhase('loading')
     setError(null)
     const request =
-      audience === 'merchant'
-        ? fetchMerchantDocuments(accessToken, appliedRange)
-        : fetchInvestorPoolDocuments(accessToken, appliedRange)
+      audience === 'admin'
+        ? fetchEvidenceRegister(accessToken, appliedRange).then((data) => ({
+            documents: data.documents || [],
+          }))
+        : audience === 'merchant'
+          ? fetchMerchantDocuments(accessToken, appliedRange)
+          : fetchInvestorPoolDocuments(accessToken, appliedRange)
     request
       .then((data) => {
         setDocs(data.documents || [])
@@ -188,10 +211,21 @@ export default function InvestorPoolDocumentsContent({
     if (!accessToken.trim()) return
     setExporting(fmt)
     try {
-      const blob = await downloadPoolDocumentsExport(accessToken, audience, fmt, appliedRange)
+      const blob = await downloadPoolDocumentsExport(
+        accessToken,
+        audience,
+        fmt,
+        appliedRange,
+        filtered.map((bundle) => bundle.loanId),
+      )
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
-      const stem = audience === 'merchant' ? 'merchant_documents' : 'investor_pool_documents'
+      const stem =
+        audience === 'admin'
+          ? 'merchant_evidence_register'
+          : audience === 'merchant'
+            ? 'merchant_documents'
+            : 'investor_pool_documents'
       a.href = url
       a.download = `${stem}.${fmt}`
       a.click()
@@ -204,7 +238,27 @@ export default function InvestorPoolDocumentsContent({
     }
   }
 
+  const periodLabel = formatAppliedPeriod(appliedRange)
+  const emptyReason: 'search' | 'period' | 'empty' =
+    docs.length > 0 && searchTerm.trim()
+      ? 'search'
+      : appliedRange.from || appliedRange.to
+        ? 'period'
+        : 'empty'
+  const loadingTitle =
+    audience === 'admin'
+      ? 'Loading the evidence register'
+      : audience === 'merchant'
+        ? 'Loading documents'
+        : 'Loading pool documents'
+  const loadingDescription =
+    audience === 'admin'
+      ? 'Fetching financed receivables for internal review…'
+      : 'Fetching agreements, invoices, and verification summaries…'
+
   const rangeControls = (
+    <div className="flex flex-col gap-2">
+      {periodLabel ? <p className="text-[13px] text-[#4D5D80]">{periodLabel}</p> : null}
     <div className="flex flex-wrap items-end gap-2">
       <label className="flex flex-col gap-1 text-[12px] text-[#6B7488]">
         From
@@ -235,7 +289,7 @@ export default function InvestorPoolDocumentsContent({
         <button
           key={fmt}
           type="button"
-          disabled={!!exporting}
+          disabled={!!exporting || phase === 'loading'}
           onClick={() => void onExport(fmt)}
           className="h-9 px-3 rounded-[6px] bg-[#195EBC] text-white text-[13px] font-semibold disabled:opacity-60"
         >
@@ -243,15 +297,22 @@ export default function InvestorPoolDocumentsContent({
         </button>
       ))}
     </div>
+    </div>
   )
 
   return (
     <div className="flex flex-col gap-4">
       <DashboardRequestFeedbackLayer
         phase={feedbackPhase}
-        loadingTitle="Loading pool documents"
-        loadingDescription="Fetching agreements, invoices, and verification summaries…"
-        errorTitle="Unable to load pool documents"
+        loadingTitle={loadingTitle}
+        loadingDescription={loadingDescription}
+        errorTitle={
+          audience === 'admin'
+            ? 'Unable to load the evidence register'
+            : audience === 'merchant'
+              ? 'Unable to load documents'
+              : 'Unable to load pool documents'
+        }
         errorDescription={error ?? undefined}
         onDismiss={() => setPhase('idle')}
         onRetry={load}
@@ -260,7 +321,9 @@ export default function InvestorPoolDocumentsContent({
 
       <div className="rounded-[8px] border border-[#E6E8EC] bg-[#F8FAFC] px-4 py-3 sm:px-5">
         <p className="text-[13px] sm:text-[14px] text-[#4D5D80] leading-relaxed">
-          {audience === 'merchant'
+          {audience === 'admin'
+            ? 'Every receivable Fist Commerce has financed, for internal review. The list and the downloaded files use the same dates and search.'
+            : audience === 'merchant'
             ? 'Your financed receivables, with identity verification, admin authority, insurance or manual document approval, and the verification NFT on the explorer.'
             : 'View financing agreements, invoice references, and insurance or manual approval for receivables in your pool. Didit KYC stays on the account. Identity documents are never exposed to investors.'}
         </p>
@@ -307,7 +370,7 @@ export default function InvestorPoolDocumentsContent({
               mobileClassName="px-2 py-8"
             />
           ) : filtered.length === 0 ? (
-            <EmptyDocumentsState isSearch={docs.length > 0 && Boolean(searchTerm.trim())} />
+            <EmptyDocumentsState reason={emptyReason} audience={audience} />
           ) : (
             pageItems.map((bundle) => (
               <PoolDocumentCard
@@ -391,7 +454,8 @@ export default function InvestorPoolDocumentsContent({
                 <tr className="border-b border-[#EDF0F4] bg-white">
                   <td colSpan={DESKTOP_COLUMNS} className="px-3 py-10">
                     <EmptyDocumentsState
-                      isSearch={docs.length > 0 && Boolean(searchTerm.trim())}
+                      reason={emptyReason}
+                      audience={audience}
                       compact
                     />
                   </td>
@@ -622,12 +686,34 @@ function SearchIcon() {
 }
 
 function EmptyDocumentsState({
-  isSearch,
+  reason,
+  audience,
   compact = false,
 }: {
-  isSearch: boolean
+  reason: 'search' | 'period' | 'empty'
+  audience: 'investor' | 'merchant' | 'admin'
   compact?: boolean
 }) {
+  const title =
+    reason === 'search'
+      ? 'No matching documents'
+      : reason === 'period'
+        ? 'No receivables in this period'
+        : audience === 'admin'
+          ? 'No financed receivables yet'
+          : audience === 'merchant'
+            ? 'No documents yet'
+            : 'No pool documents yet'
+  const detail =
+    reason === 'search'
+      ? 'Try a different business name, wallet, or receivable.'
+      : reason === 'period'
+        ? 'None of the financed receivables were created, paid, or repaid between these dates.'
+        : audience === 'admin'
+          ? 'When a receivable is financed, it will appear in this register.'
+          : audience === 'merchant'
+            ? 'When your receivables are financed, agreements and verification summaries will appear here.'
+            : 'When receivables are financed in your pool, agreements and verification summaries will appear here.'
   return (
     <div
       className={[
@@ -637,15 +723,9 @@ function EmptyDocumentsState({
       role="status"
     >
       <img src={docChecked} alt="" className="h-12 w-12 object-contain opacity-80" />
-      <p className="mt-4 text-[#0B1220] text-[15px] font-semibold">
-        {isSearch ? 'No matching documents' : 'No pool documents yet'}
-      </p>
-      <p className="mt-1.5 text-[#6B7488] text-[13px] max-w-[360px] leading-relaxed">
-        {isSearch
-          ? 'Try a different loan name, merchant, or invoice reference.'
-          : 'When receivables are financed in your pool, agreements and verification summaries will appear here.'}
-      </p>
-      {!isSearch ? (
+      <p className="mt-4 text-[#0B1220] text-[15px] font-semibold">{title}</p>
+      <p className="mt-1.5 text-[#6B7488] text-[13px] max-w-[360px] leading-relaxed">{detail}</p>
+      {reason === 'empty' && audience === 'investor' ? (
         <Link
           to={DEFAULT_POOL_PATH}
           className="mt-5 inline-flex h-10 items-center justify-center rounded-[6px] bg-[#195EBC] px-4 text-[13px] font-semibold text-white hover:bg-[#154A96] transition-colors"
