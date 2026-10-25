@@ -103,7 +103,7 @@ function lockDashboardScroll(target: HTMLElement): (() => void) | null {
   const scroller = target.closest('[data-dashboard-scroll]')
   if (!(scroller instanceof HTMLElement)) return null
   const previous = scroller.style.overflow
-  scroller.style.overflow = 'hidden'
+  scroller.style.overflow = 'clip'
   return () => {
     scroller.style.overflow = previous
   }
@@ -131,34 +131,22 @@ function PoolDocumentRangeControls({
   onExport: (fmt: 'csv' | 'xlsx' | 'pdf') => void
 }) {
   const releaseRef = useRef<(() => void) | null>(null)
-  const releaseTimer = useRef<number | null>(null)
 
   useEffect(() => {
     return () => {
-      if (releaseTimer.current != null) window.clearTimeout(releaseTimer.current)
       releaseRef.current?.()
     }
   }, [])
 
   const lockScroll = (target: HTMLInputElement) => {
-    if (releaseTimer.current != null) {
-      window.clearTimeout(releaseTimer.current)
-      releaseTimer.current = null
-    }
     if (releaseRef.current) return
     releaseRef.current = lockDashboardScroll(target)
   }
 
-  const releaseScroll = (committed?: HTMLInputElement) => {
-    if (releaseTimer.current != null) window.clearTimeout(releaseTimer.current)
-    releaseTimer.current = window.setTimeout(() => {
-      releaseTimer.current = null
-      const active = document.activeElement
-      const onDate = active instanceof HTMLInputElement && active.dataset.poolDate === 'true'
-      if (onDate && active !== committed) return
-      releaseRef.current?.()
-      releaseRef.current = null
-    }, 0)
+  const releaseScroll = (next?: EventTarget | null) => {
+    if (next instanceof HTMLInputElement && next.dataset.poolDate === 'true') return
+    releaseRef.current?.()
+    releaseRef.current = null
   }
 
   return (
@@ -173,11 +161,11 @@ function PoolDocumentRangeControls({
             value={fromDate}
             onChange={(e) => {
               onFromDate(e.target.value)
-              releaseScroll(e.currentTarget)
+              releaseScroll(e.relatedTarget)
             }}
             onPointerDown={(e) => lockScroll(e.currentTarget)}
             onTouchStart={(e) => lockScroll(e.currentTarget)}
-            onBlur={() => releaseScroll()}
+            onBlur={(e) => releaseScroll(e.relatedTarget)}
             className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-base text-[#0B1220]"
           />
         </label>
@@ -189,11 +177,11 @@ function PoolDocumentRangeControls({
             value={toDate}
             onChange={(e) => {
               onToDate(e.target.value)
-              releaseScroll(e.currentTarget)
+              releaseScroll(e.relatedTarget)
             }}
             onPointerDown={(e) => lockScroll(e.currentTarget)}
             onTouchStart={(e) => lockScroll(e.currentTarget)}
-            onBlur={() => releaseScroll()}
+            onBlur={(e) => releaseScroll(e.relatedTarget)}
             className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-base text-[#0B1220]"
           />
         </label>
