@@ -148,7 +148,7 @@ const AdminDashboardLayout = () => {
           </h1>
         )}
 
-        <div className="px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto flex-1 min-h-0">
+        <div data-dashboard-scroll className="px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto flex-1 min-h-0">
           <Outlet />
         </div>
       </div>

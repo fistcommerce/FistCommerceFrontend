@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { fetchInvestorPoolDocuments, fetchMerchantDocuments, fetchEvidenceRegister, downloadPoolDocumentsExport, type ReceivableEvidenceBundle } from '@/api/evidence'
@@ -97,6 +97,127 @@ function formatAppliedPeriod(range: { from?: string; to?: string }): string | nu
   if (range.from) return `Showing receivables from ${pretty(range.from)}.`
   if (range.to) return `Showing receivables through ${pretty(range.to)}.`
   return null
+}
+
+function lockDashboardScroll(target: HTMLElement): (() => void) | null {
+  const scroller = target.closest('[data-dashboard-scroll]')
+  if (!(scroller instanceof HTMLElement)) return null
+  const previous = scroller.style.overflow
+  scroller.style.overflow = 'hidden'
+  return () => {
+    scroller.style.overflow = previous
+  }
+}
+
+function PoolDocumentRangeControls({
+  periodLabel,
+  fromDate,
+  toDate,
+  exporting,
+  exportDisabled,
+  onFromDate,
+  onToDate,
+  onApply,
+  onExport,
+}: {
+  periodLabel: string | null
+  fromDate: string
+  toDate: string
+  exporting: string | null
+  exportDisabled: boolean
+  onFromDate: (value: string) => void
+  onToDate: (value: string) => void
+  onApply: () => void
+  onExport: (fmt: 'csv' | 'xlsx' | 'pdf') => void
+}) {
+  const releaseRef = useRef<(() => void) | null>(null)
+  const releaseTimer = useRef<number | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (releaseTimer.current != null) window.clearTimeout(releaseTimer.current)
+      releaseRef.current?.()
+    }
+  }, [])
+
+  const lockScroll = (target: HTMLInputElement) => {
+    if (releaseTimer.current != null) {
+      window.clearTimeout(releaseTimer.current)
+      releaseTimer.current = null
+    }
+    if (releaseRef.current) return
+    releaseRef.current = lockDashboardScroll(target)
+  }
+
+  const releaseScroll = (committed?: HTMLInputElement) => {
+    if (releaseTimer.current != null) window.clearTimeout(releaseTimer.current)
+    releaseTimer.current = window.setTimeout(() => {
+      releaseTimer.current = null
+      const active = document.activeElement
+      const onDate = active instanceof HTMLInputElement && active.dataset.poolDate === 'true'
+      if (onDate && active !== committed) return
+      releaseRef.current?.()
+      releaseRef.current = null
+    }, 0)
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {periodLabel ? <p className="text-[13px] text-[#4D5D80]">{periodLabel}</p> : null}
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-[12px] text-[#6B7488]">
+          From
+          <input
+            type="date"
+            data-pool-date="true"
+            value={fromDate}
+            onChange={(e) => {
+              onFromDate(e.target.value)
+              releaseScroll(e.currentTarget)
+            }}
+            onPointerDown={(e) => lockScroll(e.currentTarget)}
+            onTouchStart={(e) => lockScroll(e.currentTarget)}
+            onBlur={() => releaseScroll()}
+            className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-base text-[#0B1220]"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-[12px] text-[#6B7488]">
+          To
+          <input
+            type="date"
+            data-pool-date="true"
+            value={toDate}
+            onChange={(e) => {
+              onToDate(e.target.value)
+              releaseScroll(e.currentTarget)
+            }}
+            onPointerDown={(e) => lockScroll(e.currentTarget)}
+            onTouchStart={(e) => lockScroll(e.currentTarget)}
+            onBlur={() => releaseScroll()}
+            className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-base text-[#0B1220]"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={onApply}
+          className="h-9 px-3 rounded-[6px] border border-[#E6E8EC] bg-white text-[#0B1220] text-[13px] font-semibold"
+        >
+          Apply
+        </button>
+        {(['csv', 'xlsx', 'pdf'] as const).map((fmt) => (
+          <button
+            key={fmt}
+            type="button"
+            disabled={exportDisabled || !!exporting}
+            onClick={() => onExport(fmt)}
+            className="h-9 px-3 rounded-[6px] bg-[#195EBC] text-white text-[13px] font-semibold disabled:opacity-60"
+          >
+            {exporting === fmt ? 'Exporting…' : fmt.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function matchesSearch(bundle: ReceivableEvidenceBundle, q: string): boolean {
@@ -256,50 +377,6 @@ export default function InvestorPoolDocumentsContent({
       ? 'Fetching financed receivables for internal review…'
       : 'Fetching agreements, invoices, and verification summaries…'
 
-  const rangeControls = (
-    <div className="flex flex-col gap-2">
-      {periodLabel ? <p className="text-[13px] text-[#4D5D80]">{periodLabel}</p> : null}
-    <div className="flex flex-wrap items-end gap-2">
-      <label className="flex flex-col gap-1 text-[12px] text-[#6B7488]">
-        From
-        <input
-          type="date"
-          value={fromDate}
-          onChange={(e) => setFromDate(e.target.value)}
-          className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-[13px] text-[#0B1220]"
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-[12px] text-[#6B7488]">
-        To
-        <input
-          type="date"
-          value={toDate}
-          onChange={(e) => setToDate(e.target.value)}
-          className="h-9 rounded-[6px] border border-[#D5DAE2] px-2 text-[13px] text-[#0B1220]"
-        />
-      </label>
-      <button
-        type="button"
-        onClick={applyRange}
-        className="h-9 px-3 rounded-[6px] border border-[#E6E8EC] bg-white text-[#0B1220] text-[13px] font-semibold"
-      >
-        Apply
-      </button>
-      {(['csv', 'xlsx', 'pdf'] as const).map((fmt) => (
-        <button
-          key={fmt}
-          type="button"
-          disabled={!!exporting || phase === 'loading'}
-          onClick={() => void onExport(fmt)}
-          className="h-9 px-3 rounded-[6px] bg-[#195EBC] text-white text-[13px] font-semibold disabled:opacity-60"
-        >
-          {exporting === fmt ? 'Exporting…' : fmt.toUpperCase()}
-        </button>
-      ))}
-    </div>
-    </div>
-  )
-
   return (
     <div className="flex flex-col gap-4">
       <DashboardRequestFeedbackLayer
@@ -327,6 +404,20 @@ export default function InvestorPoolDocumentsContent({
             ? 'Your financed receivables, with identity verification, admin authority, insurance or manual document approval, and the verification NFT on the explorer.'
             : 'View financing agreements, invoice references, and insurance or manual approval for receivables in your pool. Didit KYC stays on the account. Identity documents are never exposed to investors.'}
         </p>
+      </div>
+
+      <div className="rounded-[10px] border border-[#E6E8EC] bg-white px-4 py-4 shadow-sm lg:px-8">
+        <PoolDocumentRangeControls
+          periodLabel={periodLabel}
+          fromDate={fromDate}
+          toDate={toDate}
+          exporting={exporting}
+          exportDisabled={phase === 'loading'}
+          onFromDate={setFromDate}
+          onToDate={setToDate}
+          onApply={applyRange}
+          onExport={(fmt) => void onExport(fmt)}
+        />
       </div>
 
       {/* Mobile list */}
@@ -357,7 +448,6 @@ export default function InvestorPoolDocumentsContent({
               />
             </div>
           ) : null}
-          {rangeControls}
         </div>
 
         <div className="flex flex-col gap-3 p-3">
@@ -417,7 +507,6 @@ export default function InvestorPoolDocumentsContent({
             </button>
           </div>
           </div>
-          {rangeControls}
         </div>
 
         <div className="px-4 pb-4 pt-3">
