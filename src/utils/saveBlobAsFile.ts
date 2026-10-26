@@ -112,18 +112,17 @@ async function shareText(filename: string, text: string): Promise<'shared' | 'ca
 }
 
 /**
- * Save a fetched file.
- * Phones always need a second tap. Zerion drops the click that follows `await`, and a fast
- * `AbortError` from its webview means sharing is unavailable, not that the user dismissed a sheet.
+ * Save a fetched file as soon as it is available.
+ * A fast `AbortError` from a wallet webview means sharing is unavailable, not that the user
+ * dismissed a sheet.
  */
 export async function saveBlobAsFile(
   blob: Blob,
   filename: string,
-  options?: { fromUserGesture?: boolean; textOnly?: boolean; csvText?: string | null },
+  options?: { textOnly?: boolean; csvText?: string | null },
 ): Promise<SaveBlobResult> {
   const mobile = isMobileBrowser()
   const inAppWebView = isInAppWebView()
-  if (mobile && !options?.fromUserGesture) return 'needs-gesture'
 
   if (options?.textOnly) {
     const text = options.csvText?.trim()
@@ -134,12 +133,12 @@ export async function saveBlobAsFile(
   }
 
   const file = fileFromBlob(blob, filename)
-  if (canShareFile(file)) {
+  if (mobile && canShareFile(file)) {
     const shared = await shareFiles(file, filename)
     if (shared === 'shared' || shared === 'cancelled') return shared
   }
 
-  if (inAppWebView) return 'blocked'
+  if (mobile && inAppWebView) return 'blocked'
   triggerAnchorDownload(file, filename)
   return 'downloaded'
 }

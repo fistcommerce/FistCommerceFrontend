@@ -123,13 +123,11 @@ function PoolDocumentRangeControls({
   exporting,
   exportDisabled,
   exportNotice,
-  saveReady,
   shareTextReady,
   onFromDate,
   onToDate,
   onApply,
   onExport,
-  onSave,
   onShareText,
 }: {
   periodLabel: string | null
@@ -138,13 +136,11 @@ function PoolDocumentRangeControls({
   exporting: string | null
   exportDisabled: boolean
   exportNotice: string | null
-  saveReady: boolean
   shareTextReady: boolean
   onFromDate: (value: string) => void
   onToDate: (value: string) => void
   onApply: () => void
   onExport: (fmt: 'csv' | 'xlsx' | 'pdf') => void
-  onSave: () => void
   onShareText: () => void
 }) {
   const releaseRef = useRef<(() => void) | null>(null)
@@ -220,15 +216,6 @@ function PoolDocumentRangeControls({
             {exporting === fmt ? 'Exporting…' : fmt.toUpperCase()}
           </button>
         ))}
-        {saveReady ? (
-          <button
-            type="button"
-            onClick={onSave}
-            className="h-9 px-3 rounded-[6px] bg-[#0B1220] text-white text-[13px] font-semibold"
-          >
-            Save
-          </button>
-        ) : null}
         {shareTextReady ? (
           <button
             type="button"
@@ -396,7 +383,7 @@ export default function InvestorPoolDocumentsContent({
       )
       return
     }
-    setExportNotice('The file is ready. Tap Save to store it on this phone.')
+    setExportNotice(null)
   }
 
   const onExport = async (fmt: 'csv' | 'xlsx' | 'pdf') => {
@@ -420,10 +407,12 @@ export default function InvestorPoolDocumentsContent({
             ? 'merchant_documents'
             : 'investor_pool_documents'
       const filename = `${stem}.${fmt}`
-      const csvText = filename.endsWith('.csv') && blob.size <= 1_000_000 ? await blob.text() : null
-      const ready = { blob, filename, csvText }
       const result = await saveBlobAsFile(blob, filename)
-      applySaveResult(result, ready)
+      const csvText =
+        result === 'blocked' && filename.endsWith('.csv') && blob.size <= 1_000_000
+          ? await blob.text()
+          : null
+      applySaveResult(result, { blob, filename, csvText })
     } catch (e) {
       setExportNotice(toUserFacingError(e, 'Export failed'))
     } finally {
@@ -431,19 +420,10 @@ export default function InvestorPoolDocumentsContent({
     }
   }
 
-  const onSaveReadyFile = () => {
-    if (!readyExport) return
-    const ready = readyExport
-    void saveBlobAsFile(ready.blob, ready.filename, { fromUserGesture: true }).then((result) => {
-      applySaveResult(result, ready)
-    })
-  }
-
   const onShareReadyText = () => {
     if (!readyExport?.csvText) return
     const ready = readyExport
     void saveBlobAsFile(ready.blob, ready.filename, {
-      fromUserGesture: true,
       textOnly: true,
       csvText: ready.csvText,
     }).then((result) => {
@@ -506,13 +486,11 @@ export default function InvestorPoolDocumentsContent({
           exporting={exporting}
           exportDisabled={phase === 'loading'}
           exportNotice={exportNotice}
-          saveReady={readyExport != null}
           shareTextReady={Boolean(readyExport?.csvText)}
           onFromDate={setFromDate}
           onToDate={setToDate}
           onApply={applyRange}
           onExport={(fmt) => void onExport(fmt)}
-          onSave={onSaveReadyFile}
           onShareText={onShareReadyText}
         />
         {filePreview && (filePreview.csvText != null || filePreview.filename.endsWith('.pdf')) ? (
