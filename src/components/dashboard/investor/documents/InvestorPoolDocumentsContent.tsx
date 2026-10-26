@@ -11,6 +11,7 @@ import { AsyncTableBodyMessage } from '@/components/dashboard/shared/asyncDataTa
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import { usePaginatedListItems } from '@/hooks/usePaginatedListItems'
 import { useAppSelector } from '@/store/hooks'
+import { saveBlobAsFile, type SaveBlobResult } from '@/utils/saveBlobAsFile'
 
 const DESKTOP_COLUMNS = 7
 const DEFAULT_POOL_PATH = '/dashboard/investor/lending-pool/fist-commerce-lending-pool'
@@ -115,20 +116,26 @@ function PoolDocumentRangeControls({
   toDate,
   exporting,
   exportDisabled,
+  exportNotice,
+  saveReady,
   onFromDate,
   onToDate,
   onApply,
   onExport,
+  onSave,
 }: {
   periodLabel: string | null
   fromDate: string
   toDate: string
   exporting: string | null
   exportDisabled: boolean
+  exportNotice: string | null
+  saveReady: boolean
   onFromDate: (value: string) => void
   onToDate: (value: string) => void
   onApply: () => void
   onExport: (fmt: 'csv' | 'xlsx' | 'pdf') => void
+  onSave: () => void
 }) {
   const releaseRef = useRef<(() => void) | null>(null)
 
@@ -203,7 +210,21 @@ function PoolDocumentRangeControls({
             {exporting === fmt ? 'Exporting…' : fmt.toUpperCase()}
           </button>
         ))}
+        {saveReady ? (
+          <button
+            type="button"
+            onClick={onSave}
+            className="h-9 px-3 rounded-[6px] bg-[#0B1220] text-white text-[13px] font-semibold"
+          >
+            Save
+          </button>
+        ) : null}
       </div>
+      {exportNotice ? (
+        <p className="text-[13px] text-[#0B1220] leading-relaxed" role="status">
+          {exportNotice}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -239,6 +260,8 @@ export default function InvestorPoolDocumentsContent({
   const [toDate, setToDate] = useState('')
   const [appliedRange, setAppliedRange] = useState<{ from?: string; to?: string }>({})
   const [exporting, setExporting] = useState<string | null>(null)
+  const [exportNotice, setExportNotice] = useState<string | null>(null)
+  const [readyExport, setReadyExport] = useState<{ blob: Blob; filename: string } | null>(null)
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null)
   const title = audience === 'merchant' ? 'Documents' : 'Pool documents'
 
@@ -316,9 +339,31 @@ export default function InvestorPoolDocumentsContent({
     })
   }
 
+  const applySaveResult = (
+    result: SaveBlobResult,
+    blob: Blob,
+    filename: string,
+  ) => {
+    if (result === 'shared' || result === 'downloaded' || result === 'cancelled') {
+      if (result !== 'cancelled') {
+        setReadyExport(null)
+        setExportNotice(null)
+      }
+      return
+    }
+    setReadyExport({ blob, filename })
+    setExportNotice(
+      result === 'blocked'
+        ? 'This browser can’t keep the file. Open this page in Safari or Chrome, then export again.'
+        : 'The file is ready. Tap Save to store it on this phone.',
+    )
+  }
+
   const onExport = async (fmt: 'csv' | 'xlsx' | 'pdf') => {
     if (!accessToken.trim()) return
     setExporting(fmt)
+    setExportNotice(null)
+    setReadyExport(null)
     try {
       const blob = await downloadPoolDocumentsExport(
         accessToken,
@@ -327,24 +372,27 @@ export default function InvestorPoolDocumentsContent({
         appliedRange,
         filtered.map((bundle) => bundle.loanId),
       )
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
       const stem =
         audience === 'admin'
           ? 'merchant_evidence_register'
           : audience === 'merchant'
             ? 'merchant_documents'
             : 'investor_pool_documents'
-      a.href = url
-      a.download = `${stem}.${fmt}`
-      a.click()
-      URL.revokeObjectURL(url)
+      const filename = `${stem}.${fmt}`
+      const result = await saveBlobAsFile(blob, filename)
+      applySaveResult(result, blob, filename)
     } catch (e) {
-      setError(toUserFacingError(e, 'Export failed'))
-      setPhase('failed')
+      setExportNotice(toUserFacingError(e, 'Export failed'))
     } finally {
       setExporting(null)
     }
+  }
+
+  const onSaveReadyFile = () => {
+    if (!readyExport) return
+    void saveBlobAsFile(readyExport.blob, readyExport.filename, { fromUserGesture: true }).then((result) => {
+      applySaveResult(result, readyExport.blob, readyExport.filename)
+    })
   }
 
   const periodLabel = formatAppliedPeriod(appliedRange)
@@ -401,10 +449,13 @@ export default function InvestorPoolDocumentsContent({
           toDate={toDate}
           exporting={exporting}
           exportDisabled={phase === 'loading'}
+          exportNotice={exportNotice}
+          saveReady={readyExport != null}
           onFromDate={setFromDate}
           onToDate={setToDate}
           onApply={applyRange}
           onExport={(fmt) => void onExport(fmt)}
+          onSave={onSaveReadyFile}
         />
       </div>
 
