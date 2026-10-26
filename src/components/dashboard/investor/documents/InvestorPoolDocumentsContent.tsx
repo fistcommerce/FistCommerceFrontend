@@ -178,7 +178,7 @@ function PoolDocumentRangeControls({
             value={fromDate}
             onChange={(e) => {
               onFromDate(e.target.value)
-              releaseScroll(e.relatedTarget)
+              releaseScroll()
             }}
             onPointerDown={(e) => lockScroll(e.currentTarget)}
             onTouchStart={(e) => lockScroll(e.currentTarget)}
@@ -194,7 +194,7 @@ function PoolDocumentRangeControls({
             value={toDate}
             onChange={(e) => {
               onToDate(e.target.value)
-              releaseScroll(e.relatedTarget)
+              releaseScroll()
             }}
             onPointerDown={(e) => lockScroll(e.currentTarget)}
             onTouchStart={(e) => lockScroll(e.currentTarget)}
