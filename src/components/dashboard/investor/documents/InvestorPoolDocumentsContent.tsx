@@ -13,6 +13,12 @@ import { usePaginatedListItems } from '@/hooks/usePaginatedListItems'
 import { useAppSelector } from '@/store/hooks'
 import { saveBlobAsFile, type SaveBlobResult } from '@/utils/saveBlobAsFile'
 
+type ReadyExport = {
+  blob: Blob
+  filename: string
+  csvText: string | null
+}
+
 const DESKTOP_COLUMNS = 7
 const DEFAULT_POOL_PATH = '/dashboard/investor/lending-pool/fist-commerce-lending-pool'
 
@@ -118,11 +124,13 @@ function PoolDocumentRangeControls({
   exportDisabled,
   exportNotice,
   saveReady,
+  shareTextReady,
   onFromDate,
   onToDate,
   onApply,
   onExport,
   onSave,
+  onShareText,
 }: {
   periodLabel: string | null
   fromDate: string
@@ -131,11 +139,13 @@ function PoolDocumentRangeControls({
   exportDisabled: boolean
   exportNotice: string | null
   saveReady: boolean
+  shareTextReady: boolean
   onFromDate: (value: string) => void
   onToDate: (value: string) => void
   onApply: () => void
   onExport: (fmt: 'csv' | 'xlsx' | 'pdf') => void
   onSave: () => void
+  onShareText: () => void
 }) {
   const releaseRef = useRef<(() => void) | null>(null)
 
@@ -219,6 +229,15 @@ function PoolDocumentRangeControls({
             Save
           </button>
         ) : null}
+        {shareTextReady ? (
+          <button
+            type="button"
+            onClick={onShareText}
+            className="h-9 px-3 rounded-[6px] border border-[#0B1220] bg-white text-[#0B1220] text-[13px] font-semibold"
+          >
+            Share text
+          </button>
+        ) : null}
       </div>
       {exportNotice ? (
         <p className="text-[13px] text-[#0B1220] leading-relaxed" role="status">
@@ -261,7 +280,9 @@ export default function InvestorPoolDocumentsContent({
   const [appliedRange, setAppliedRange] = useState<{ from?: string; to?: string }>({})
   const [exporting, setExporting] = useState<string | null>(null)
   const [exportNotice, setExportNotice] = useState<string | null>(null)
-  const [readyExport, setReadyExport] = useState<{ blob: Blob; filename: string } | null>(null)
+  const [readyExport, setReadyExport] = useState<ReadyExport | null>(null)
+  const [filePreview, setFilePreview] = useState<{ url: string; filename: string; csvText: string | null } | null>(null)
+  const filePreviewRef = useRef<string | null>(null)
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null)
   const title = audience === 'merchant' ? 'Documents' : 'Pool documents'
 
@@ -339,24 +360,43 @@ export default function InvestorPoolDocumentsContent({
     })
   }
 
-  const applySaveResult = (
-    result: SaveBlobResult,
-    blob: Blob,
-    filename: string,
-  ) => {
-    if (result === 'shared' || result === 'downloaded' || result === 'cancelled') {
-      if (result !== 'cancelled') {
-        setReadyExport(null)
-        setExportNotice(null)
-      }
+  const clearFilePreview = () => {
+    if (filePreviewRef.current) URL.revokeObjectURL(filePreviewRef.current)
+    filePreviewRef.current = null
+    setFilePreview(null)
+  }
+
+  useEffect(() => clearFilePreview, [])
+
+  const showFilePreview = (ready: ReadyExport) => {
+    clearFilePreview()
+    if (ready.csvText == null && !ready.filename.endsWith('.pdf')) return
+    const url = URL.createObjectURL(ready.blob)
+    filePreviewRef.current = url
+    setFilePreview({ url, filename: ready.filename, csvText: ready.csvText })
+  }
+
+  const applySaveResult = (result: SaveBlobResult, ready: ReadyExport) => {
+    if (result === 'shared' || result === 'downloaded') {
+      setReadyExport(null)
+      setExportNotice(null)
+      clearFilePreview()
       return
     }
-    setReadyExport({ blob, filename })
-    setExportNotice(
-      result === 'blocked'
-        ? 'This browser can’t keep the file. Open this page in Safari or Chrome, then export again.'
-        : 'The file is ready. Tap Save to store it on this phone.',
-    )
+    if (result === 'cancelled') return
+    setReadyExport(ready)
+    if (result === 'blocked') {
+      showFilePreview(ready)
+      setExportNotice(
+        ready.csvText
+          ? 'This browser can’t store the file. Tap Share text, or open this page in Safari and export again.'
+          : ready.filename.endsWith('.pdf')
+            ? 'This browser can’t store the file. The PDF is open below. To keep a copy, open this page in Safari and export again.'
+            : 'This browser can’t store the file. Open this page in Safari and export again.',
+      )
+      return
+    }
+    setExportNotice('The file is ready. Tap Save to store it on this phone.')
   }
 
   const onExport = async (fmt: 'csv' | 'xlsx' | 'pdf') => {
@@ -364,6 +404,7 @@ export default function InvestorPoolDocumentsContent({
     setExporting(fmt)
     setExportNotice(null)
     setReadyExport(null)
+    clearFilePreview()
     try {
       const blob = await downloadPoolDocumentsExport(
         accessToken,
@@ -379,8 +420,10 @@ export default function InvestorPoolDocumentsContent({
             ? 'merchant_documents'
             : 'investor_pool_documents'
       const filename = `${stem}.${fmt}`
+      const csvText = filename.endsWith('.csv') && blob.size <= 1_000_000 ? await blob.text() : null
+      const ready = { blob, filename, csvText }
       const result = await saveBlobAsFile(blob, filename)
-      applySaveResult(result, blob, filename)
+      applySaveResult(result, ready)
     } catch (e) {
       setExportNotice(toUserFacingError(e, 'Export failed'))
     } finally {
@@ -390,8 +433,21 @@ export default function InvestorPoolDocumentsContent({
 
   const onSaveReadyFile = () => {
     if (!readyExport) return
-    void saveBlobAsFile(readyExport.blob, readyExport.filename, { fromUserGesture: true }).then((result) => {
-      applySaveResult(result, readyExport.blob, readyExport.filename)
+    const ready = readyExport
+    void saveBlobAsFile(ready.blob, ready.filename, { fromUserGesture: true }).then((result) => {
+      applySaveResult(result, ready)
+    })
+  }
+
+  const onShareReadyText = () => {
+    if (!readyExport?.csvText) return
+    const ready = readyExport
+    void saveBlobAsFile(ready.blob, ready.filename, {
+      fromUserGesture: true,
+      textOnly: true,
+      csvText: ready.csvText,
+    }).then((result) => {
+      applySaveResult(result, ready)
     })
   }
 
@@ -451,12 +507,25 @@ export default function InvestorPoolDocumentsContent({
           exportDisabled={phase === 'loading'}
           exportNotice={exportNotice}
           saveReady={readyExport != null}
+          shareTextReady={Boolean(readyExport?.csvText)}
           onFromDate={setFromDate}
           onToDate={setToDate}
           onApply={applyRange}
           onExport={(fmt) => void onExport(fmt)}
           onSave={onSaveReadyFile}
+          onShareText={onShareReadyText}
         />
+        {filePreview && (filePreview.csvText != null || filePreview.filename.endsWith('.pdf')) ? (
+          <div className="mt-3 overflow-hidden rounded-[8px] border border-[#E6E8EC]">
+            {filePreview.csvText != null ? (
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words bg-[#F8FAFC] p-3 text-[12px] leading-relaxed text-[#0B1220]">
+                {filePreview.csvText}
+              </pre>
+            ) : filePreview.filename.endsWith('.pdf') ? (
+              <iframe title={filePreview.filename} src={filePreview.url} className="h-[70vh] w-full bg-white" />
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       {/* Mobile list */}

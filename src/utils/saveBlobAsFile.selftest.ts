@@ -2,7 +2,7 @@
  * Mobile export save plan — run with:
  *   npx --yes tsx src/utils/saveBlobAsFile.selftest.ts
  */
-import { isInAppWebViewUserAgent, planBlobSave } from './saveBlobAsFile'
+import { isInAppWebViewUserAgent, planBlobSave, shareAbortWasCancel } from './saveBlobAsFile'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg)
@@ -13,6 +13,10 @@ assert(planBlobSave({ mobile: true, inAppWebView: true, canShareFiles: true, use
 assert(planBlobSave({ mobile: true, inAppWebView: false, canShareFiles: true, userGesture: false }) === 'needs-gesture', 'phone after a fetch waits for a tap')
 assert(planBlobSave({ mobile: true, inAppWebView: true, canShareFiles: false, userGesture: true }) === 'blocked', 'wallet webview without share is blocked')
 assert(planBlobSave({ mobile: true, inAppWebView: false, canShareFiles: false, userGesture: true }) === 'download', 'mobile safari falls back to a link')
+assert(planBlobSave({ mobile: true, inAppWebView: true, canShareFiles: true, userGesture: false }) === 'needs-gesture', 'wallet browser waits after the request')
+assert(!shareAbortWasCancel({ name: 'AbortError' }, 80), 'fast abort is the webview rejecting share')
+assert(shareAbortWasCancel({ name: 'AbortError' }, 900), 'slow abort is the user closing the sheet')
+assert(!shareAbortWasCancel({ name: 'NotAllowedError' }, 900), 'other errors are not a cancel')
 
 const zerion = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'
 const safari = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1'
