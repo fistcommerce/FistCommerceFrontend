@@ -419,7 +419,15 @@ export default function EvidenceBundlePanel({ bundle, title = 'Receivable' }: Pr
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <div className="min-w-0 rounded-[10px] bg-[#F8FAFC] px-4 py-4">
-          <SectionTitle hint="The terms accepted for this receivable.">Agreement</SectionTitle>
+          <SectionTitle
+            hint={
+              (agreement as { defaultAgreement?: boolean } | null)?.defaultAgreement === true
+                ? 'The standard agreement that covers this receivable.'
+                : 'The terms accepted for this receivable.'
+            }
+          >
+            Agreement
+          </SectionTitle>
           {agreement ? (
             <div className="space-y-2 text-[14px] text-[#0B1220]">
               <p className="font-semibold">

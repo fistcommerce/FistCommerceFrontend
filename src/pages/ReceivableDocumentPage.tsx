@@ -87,7 +87,7 @@ export function ReceivableInvoicePage() {
         <div className="space-y-3 text-[14px] leading-relaxed text-[#0B1220]">
           <p>This receivable does not include a link to the invoice file.</p>
           <p className="text-[#4D5D80]">
-            File links are included for receivables created after October 2026.
+            File links are included for receivables created from 1 October 2026. Earlier invoice files stay as a hash.
           </p>
           {hash ? (
             <p className="break-all font-mono text-[12px] text-[#0B1220]">Document hash {hash}</p>
