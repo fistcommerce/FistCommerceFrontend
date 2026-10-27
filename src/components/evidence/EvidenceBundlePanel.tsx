@@ -433,6 +433,16 @@ export default function EvidenceBundlePanel({ bundle, title = 'Receivable' }: Pr
                 </span>
               </p>
               {agreement.dueDate ? <p>Due {formatDay(agreement.dueDate)}</p> : null}
+              {agreement.agreementUrl ? (
+                <a
+                  href={agreement.agreementUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex text-[13px] font-semibold text-[#195EBC] hover:underline"
+                >
+                  View agreement
+                </a>
+              ) : null}
             </div>
           ) : (
             <p className="text-[14px] text-[#6B7488]">No financing agreement on file.</p>
@@ -452,6 +462,16 @@ export default function EvidenceBundlePanel({ bundle, title = 'Receivable' }: Pr
                   <p className="mt-1 text-[12px] leading-relaxed text-[#6B7488]">
                     Stored on chain when this invoice was approved.
                   </p>
+                  {bundle.invoice?.documentUrl ? (
+                    <a
+                      href={bundle.invoice.documentUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-2 inline-flex text-[13px] font-semibold text-[#195EBC] hover:underline"
+                    >
+                      View invoice
+                    </a>
+                  ) : null}
                 </>
               ) : (
                 <p className="mt-1 text-[13px] text-[#6B7488]">No document hash on file.</p>

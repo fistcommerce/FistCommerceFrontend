@@ -64,6 +64,7 @@ import AdminLoanMonitoringPage from '@/pages/AdminLoanMonitoringPage'
 import AdminSectionPlaceholderPage from '@/pages/AdminSectionPlaceholderPage'
 import AdminEvidenceRegisterPage from '@/pages/AdminEvidenceRegisterPage'
 import InvestorPoolDocumentsPage from '@/pages/InvestorPoolDocumentsPage'
+import { ReceivableAgreementPage, ReceivableInvoicePage } from '@/pages/ReceivableDocumentPage'
 import MerchantDocumentsPage from '@/pages/MerchantDocumentsPage'
 import AdminTransactionsPage from '@/pages/AdminTransactionsPage'
 import AdminSettingsPage from '@/pages/AdminSettingsPage'
@@ -580,6 +581,14 @@ const router = createBrowserRouter([
         element: <PageNotFound />,
       },
     ],
+  },
+  {
+    path: '/documents/receivables/:loanId/invoice',
+    element: <ReceivableInvoicePage />,
+  },
+  {
+    path: '/documents/receivables/:loanId/agreement',
+    element: <ReceivableAgreementPage />,
   },
   {
     path: '*',

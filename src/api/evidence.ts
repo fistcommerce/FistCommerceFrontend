@@ -79,7 +79,12 @@ export type ReceivableEvidenceBundle = {
   verification: VerificationSummary | null
   verificationNft?: VerificationNftLink | null
   agreement: Record<string, unknown> | null
-  invoice: { invoiceReference?: string; filename?: string; documentKey?: string } | null
+  invoice: {
+    invoiceReference?: string
+    filename?: string
+    documentKey?: string
+    documentUrl?: string | null
+  } | null
   payoutDestination: Record<string, unknown> | null
   transactions: EvidenceTxLink[]
   timeline?: ReceivableTimeline | null
@@ -114,6 +119,22 @@ export async function fetchReceivableEvidence(
     },
   })
   return parseJsonResponse<ReceivableEvidenceBundle>(res)
+}
+
+export async function fetchInvoiceDownload(
+  accessToken: string,
+  loanId: string,
+): Promise<{ downloadUrl: string; invoiceReference: string }> {
+  const res = await fetchWithAuthRecovery(
+    apiUrl(`/evidence/receivables/${loanId}/documents/invoice/`),
+    {
+      headers: {
+        Accept: 'application/json',
+        Authorization: tokenAuthHeaderValue(accessToken),
+      },
+    },
+  )
+  return parseJsonResponse(res)
 }
 
 export async function fetchMerchantEvidence(
