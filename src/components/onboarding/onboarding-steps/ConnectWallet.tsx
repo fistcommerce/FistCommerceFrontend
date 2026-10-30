@@ -21,14 +21,13 @@ import { setInvestorWalletDisplay } from '@/store/slices/investorDashboardSlice'
 import { setMerchantWalletDisplay } from '@/store/slices/merchantDashboardSlice'
 import { parseUserRole } from '@/utils/userRole'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import { getAppChainById, isSupportedAppChainId } from '@/wallet/appChain'
-import { isUserRejectedWalletRequest } from '@/wallet/walletChainErrors'
+import { getAppChainById } from '@/wallet/appChain'
+import { formatWalletChainSwitchError, isUserRejectedWalletRequest } from '@/wallet/walletChainErrors'
 import {
+  ensureWalletChain,
   getWalletClientFromPrivyWallet,
-  readWalletProviderChainId,
 } from '@/wallet/viemClients'
-import NetworkModeSwitcher from '@/components/session/NetworkModeSwitcher'
-import { getUnsupportedNetworkMessage } from '@/contract_config/contractNetwork'
+import NetworkModeSwitcher, { selectedNetworkChain } from '@/components/session/NetworkModeSwitcher'
 
 function truncateAddress(address: string) {
   if (address.length <= 12) return address
@@ -62,9 +61,37 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
   const [connecting, setConnecting] = React.useState(false)
   const [disconnecting, setDisconnecting] = React.useState(false)
   const [loggingOut, setLoggingOut] = React.useState(false)
+  const [switchingNetwork, setSwitchingNetwork] = React.useState(false)
+  const switchAttempt = React.useRef('')
 
-  const wrongNetwork =
-    isConnected && chainId != null && !isSupportedAppChainId(chainId)
+  const selectedChain = selectedNetworkChain()
+
+  React.useEffect(() => {
+    if (!isConnected || !wallet || !walletsReady) {
+      switchAttempt.current = ''
+      return
+    }
+    if (chainId === selectedChain.id) {
+      setSwitchingNetwork(false)
+      return
+    }
+    const key = `${address ?? ''}:${selectedChain.id}`
+    if (switchAttempt.current === key) return
+    switchAttempt.current = key
+    let cancelled = false
+    setSwitchingNetwork(true)
+    setRowError(null)
+    void ensureWalletChain(wallet, selectedChain.id)
+      .catch((e) => {
+        if (!cancelled) setRowError(formatWalletChainSwitchError(e, selectedChain.name))
+      })
+      .finally(() => {
+        if (!cancelled) setSwitchingNetwork(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [address, chainId, isConnected, selectedChain.id, selectedChain.name, wallet, walletsReady])
 
   React.useLayoutEffect(() => {
     const from = (location.state as { from?: string } | null)?.from
@@ -97,10 +124,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
 
   const handlePrivyLogin = async () => {
     setRowError(null)
-    if (!privyReady) {
-      setRowError('Login is still loading. Please try again in a moment.')
-      return
-    }
+    if (!privyReady) return
     setConnecting(true)
     try {
       await login()
@@ -119,10 +143,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
 
   const handleConnectExternalWallet = async () => {
     setRowError(null)
-    if (!privyReady) {
-      setRowError('Wallet connection is still loading. Please try again in a moment.')
-      return
-    }
+    if (!privyReady) return
     if (typeof connectWallet !== 'function') {
       setRowError('External wallet connection is not available in this build.')
       return
@@ -193,10 +214,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
       return
     }
 
-    if (!walletsReady) {
-      setRowError('Wallet is still loading. Please wait a moment and try again.')
-      return
-    }
+    if (!walletsReady) return
 
     if (!wallet || !address) {
       setRowError('Connect a wallet first (embedded or external) to sign in.')
@@ -206,15 +224,20 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
     setRowError(null)
     setAuthInFlight(true)
     try {
-      const providerChainId = await readWalletProviderChainId(wallet)
-      const loginChainId = providerChainId ?? chainId
-      if (loginChainId == null || !isSupportedAppChainId(loginChainId)) {
-        setRowError(getUnsupportedNetworkMessage())
-        return
+      const loginChain = selectedNetworkChain()
+      try {
+        await ensureWalletChain(wallet, loginChain.id)
+      } catch (e) {
+        if (isWalletSignRejected(e)) {
+          setRowError(
+            `Switch to ${loginChain.name} was cancelled. Approve the network change to sign in.`,
+          )
+          return
+        }
+        throw e
       }
-      const loginChain = getAppChainById(loginChainId)
-      if (!loginChain) {
-        setRowError(getUnsupportedNetworkMessage({ short: true }))
+      if (!getAppChainById(loginChain.id)) {
+        setRowError(`Could not switch to ${loginChain.name}.`)
         return
       }
 
@@ -336,9 +359,9 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
           </div>
         ) : null}
 
-        {wrongNetwork ? (
+        {switchingNetwork ? (
           <p className="text-[14px] text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mb-4" role="status">
-            {getUnsupportedNetworkMessage()} Then press Continue — or disconnect and choose another wallet.
+            Switching your wallet to {selectedChain.name}…
           </p>
         ) : null}
 
@@ -363,24 +386,28 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
           <button
             type="button"
             onClick={() => void handlePrivyLogin()}
-            disabled={connecting || authInFlight || disconnecting}
+            disabled={connecting || authInFlight || disconnecting || !privyReady}
             className="flex items-center justify-between rounded-md border border-[#EAEAEA] bg-white px-4 py-3 hover:bg-[#F9FAFB] disabled:opacity-60"
           >
             <div className="flex items-center gap-3 min-w-0">
               <img src={privyIcon} alt="" className="inline-block w-[22px] h-[22px]" />
               <span className="text-black font-bold truncate">Continue with Google or email</span>
             </div>
-            <span className="text-[14px] text-[#6B7488]">{connecting ? 'Opening…' : 'Login'}</span>
+            <span className="text-[14px] text-[#6B7488]">
+              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Login'}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => void handleConnectExternalWallet()}
-            disabled={connecting || authInFlight || disconnecting}
+            disabled={connecting || authInFlight || disconnecting || !privyReady}
             className="flex items-center justify-between rounded-md border border-[#EAEAEA] bg-white px-4 py-3 hover:bg-[#F9FAFB] disabled:opacity-60"
           >
             <span className="text-black font-bold truncate">Connect external wallet</span>
-            <span className="text-[14px] text-[#6B7488]">{connecting ? 'Opening…' : 'Connect'}</span>
+            <span className="text-[14px] text-[#6B7488]">
+              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Connect'}
+            </span>
           </button>
         </div>
 
@@ -388,7 +415,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
           <button
             type="button"
             onClick={() => void handleContinue()}
-            disabled={!isConnected || authInFlight || disconnecting}
+            disabled={!isConnected || !walletsReady || authInFlight || disconnecting || switchingNetwork}
             className="bg-[#195EBC] text-white px-4 py-3 rounded-md w-full mt-1 disabled:opacity-60"
           >
             {authInFlight ? 'Signing in…' : 'Continue'}

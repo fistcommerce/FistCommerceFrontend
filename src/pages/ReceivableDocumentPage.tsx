@@ -4,10 +4,8 @@ import { Link, Navigate, useParams } from 'react-router-dom'
 import { fetchInvoiceDownload, fetchReceivableEvidence, type ReceivableEvidenceBundle } from '@/api/evidence'
 import { toUserFacingError } from '@/api/client'
 import { FistCommerceLogo } from '@/components/landing/FistCommerceLogo'
-import {
-  FIST_RECEIVABLE_FINANCING_AGREEMENT_BLOCKS,
-  FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION,
-} from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
+import AgreementDocumentBody from '@/components/dashboard/merchant/loan/AgreementDocumentBody'
+import type { AgreementContentBlock } from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
 import { useAppSelector } from '@/store/hooks'
 
 function DocumentFrame({
@@ -59,6 +57,9 @@ export function ReceivableInvoicePage() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const documentUrl = bundle?.invoice?.documentUrl?.trim() || ''
+  const fileHref =
+    downloadUrl ||
+    (documentUrl.startsWith('http://') || documentUrl.startsWith('https://') ? documentUrl : '')
 
   useEffect(() => {
     if (!accessToken.trim() || !loanId || !documentUrl) return
@@ -68,7 +69,11 @@ export function ReceivableInvoicePage() {
         if (!cancelled) setDownloadUrl(data.downloadUrl)
       })
       .catch((e) => {
-        if (!cancelled) setDownloadError(toUserFacingError(e, 'Unable to open the invoice file'))
+        const alreadyLinked =
+          documentUrl.startsWith('http://') || documentUrl.startsWith('https://')
+        if (!cancelled && !alreadyLinked) {
+          setDownloadError(toUserFacingError(e, 'Unable to open the invoice file'))
+        }
       })
     return () => {
       cancelled = true
@@ -87,7 +92,7 @@ export function ReceivableInvoicePage() {
         <div className="space-y-3 text-[14px] leading-relaxed text-[#0B1220]">
           <p>This receivable does not include a link to the invoice file.</p>
           <p className="text-[#4D5D80]">
-            File links are included for receivables created from 1 October 2026. Earlier invoice files stay as a hash.
+            File links are included for receivables created on or after 25 September 2026. Earlier invoice files stay as a hash.
           </p>
           {hash ? (
             <p className="break-all font-mono text-[12px] text-[#0B1220]">Document hash {hash}</p>
@@ -101,9 +106,9 @@ export function ReceivableInvoicePage() {
           <p>{bundle.loanName || 'Receivable'} invoice file.</p>
           {hash ? <p className="break-all font-mono text-[12px]">{hash}</p> : null}
           {downloadError ? <p className="text-[#9B2C2C]">{downloadError}</p> : null}
-          {downloadUrl ? (
+          {fileHref ? (
             <a
-              href={downloadUrl}
+              href={fileHref}
               target="_blank"
               rel="noreferrer"
               className="inline-flex h-10 items-center rounded-[8px] bg-[#195EBC] px-4 text-[14px] font-semibold text-white"
@@ -128,9 +133,19 @@ export function ReceivableAgreementPage() {
   const { accessToken, bundle, error } = useReceivableDocument()
   if (!accessToken.trim()) return <Navigate to="/continue" replace />
 
-  const agreement = bundle?.agreement as Record<string, string | null> | null
+  const agreement = bundle?.agreement as {
+    agreementFilename?: string | null
+    agreementVersion?: string | null
+    repaymentAmount?: string | null
+    financingAmount?: string | null
+    dueDate?: string | null
+    acceptedAt?: string | null
+    fileUrl?: string | null
+    blocks?: AgreementContentBlock[]
+  } | null
   const version = (agreement?.agreementVersion || '').replace(/^v/i, '')
-  const knownText = version === FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION
+  const blocks = agreement?.blocks ?? []
+  const fileUrl = agreement?.fileUrl?.trim() || ''
 
   return (
     <DocumentFrame title="Financing agreement">
@@ -147,35 +162,18 @@ export function ReceivableAgreementPage() {
           {agreement.financingAmount ? <p>Amount financed {agreement.financingAmount}</p> : null}
           {agreement.dueDate ? <p>Due {agreement.dueDate}</p> : null}
           {agreement.acceptedAt ? <p>Accepted {agreement.acceptedAt}</p> : null}
-          {knownText ? (
-            <div className="mt-4 space-y-2 border-t border-[#E6E8EC] pt-4">
-              {FIST_RECEIVABLE_FINANCING_AGREEMENT_BLOCKS.map((block, index) => {
-                if (block.type === 'bullet') {
-                  return (
-                    <p key={index} className="pl-4 text-[13px] leading-relaxed text-[#334155]">
-                      • {block.text}
-                    </p>
-                  )
-                }
-                if (block.type === 'docTitle' || block.type === 'sectionHeading') {
-                  return (
-                    <h2 key={index} className="pt-3 text-[15px] font-semibold text-[#0B1220]">
-                      {block.text}
-                    </h2>
-                  )
-                }
-                return (
-                  <p key={index} className="text-[13px] leading-relaxed text-[#334155]">
-                    {'label' in block ? `${block.label}: ` : ''}
-                    {block.text}
-                  </p>
-                )
-              })}
+          {fileUrl ? (
+            <a href={fileUrl} target="_blank" rel="noreferrer" className="inline-flex text-[13px] font-semibold text-[#195EBC] hover:underline">
+              Open agreement PDF
+            </a>
+          ) : null}
+          {blocks.length ? (
+            <div className="pt-4">
+              <AgreementDocumentBody blocks={blocks} />
             </div>
           ) : (
             <p className="pt-2 text-[13px] leading-relaxed text-[#6B7488]">
-              The full wording for version {version || 'this acceptance'} is not in this build. The acceptance
-              details above are the record stored for this receivable.
+              The wording for this agreement is not available.
             </p>
           )}
         </div>

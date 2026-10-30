@@ -8,7 +8,7 @@ import { createWalletLoginSignable } from '@/api/walletSession'
 import privyIcon from '@/assets/Icon (1).png'
 import { AdminLoginFeedbackModal } from '@/components/admin/AdminLoginFeedbackModal'
 import AdminLoginGuard from '@/components/session/AdminLoginGuard'
-import NetworkModeSwitcher from '@/components/session/NetworkModeSwitcher'
+import NetworkModeSwitcher, { selectedNetworkChain } from '@/components/session/NetworkModeSwitcher'
 import { ADMIN_DASHBOARD_OVERVIEW_PATH } from '@/auth/adminSession'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
 import { consumeSessionEndMessage } from '@/session/sessionEnd'
@@ -16,13 +16,9 @@ import { useAppDispatch } from '@/store/hooks'
 import { persistor } from '@/store'
 import { patchAuth } from '@/store/slices/authSlice'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import { getAppChainById, isSupportedAppChainId } from '@/wallet/appChain'
+import { getAppChainById } from '@/wallet/appChain'
 import { isUserRejectedWalletRequest } from '@/wallet/walletChainErrors'
-import {
-  getWalletClientFromPrivyWallet,
-  readWalletProviderChainId,
-} from '@/wallet/viemClients'
-import { getUnsupportedNetworkMessage } from '@/contract_config/contractNetwork'
+import { ensureWalletChain, getWalletClientFromPrivyWallet } from '@/wallet/viemClients'
 
 function truncateAddress(address: string) {
   if (address.length <= 12) return address
@@ -55,16 +51,13 @@ const AdminLoginPage = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    const message = consumeSessionEndMessage()
+    const message = consumeSessionEndMessage({ isAdmin: true })
     if (message) setErrorMessage(message)
   }, [])
 
   const handlePrivyLogin = async () => {
     setErrorMessage(null)
-    if (!privyReady) {
-      setErrorMessage('Login is still loading. Please try again in a moment.')
-      return
-    }
+    if (!privyReady) return
     setConnecting(true)
     try {
       await login()
@@ -83,10 +76,7 @@ const AdminLoginPage = () => {
 
   const handleConnectExternalWallet = async () => {
     setErrorMessage(null)
-    if (!privyReady) {
-      setErrorMessage('Wallet connection is still loading. Please try again in a moment.')
-      return
-    }
+    if (!privyReady) return
     if (typeof connectWallet !== 'function') {
       setErrorMessage('External wallet connection is not available in this build.')
       return
@@ -115,10 +105,7 @@ const AdminLoginPage = () => {
       return
     }
 
-    if (!walletsReady) {
-      setErrorMessage('Wallet is still loading. Please wait a moment and try again.')
-      return
-    }
+    if (!walletsReady) return
 
     if (!wallet || !address) {
       setErrorMessage('Connect a wallet first (embedded or external) to sign in.')
@@ -128,15 +115,20 @@ const AdminLoginPage = () => {
     setErrorMessage(null)
     setAuthInFlight(true)
     try {
-      const providerChainId = await readWalletProviderChainId(wallet)
-      const loginChainId = providerChainId
-      if (loginChainId == null || !isSupportedAppChainId(loginChainId)) {
-        setErrorMessage(getUnsupportedNetworkMessage())
-        return
+      const loginChain = selectedNetworkChain()
+      try {
+        await ensureWalletChain(wallet, loginChain.id)
+      } catch (e) {
+        if (isUserRejectedWalletRequest(e)) {
+          setErrorMessage(
+            `Switch to ${loginChain.name} was cancelled. Approve the network change to sign in.`,
+          )
+          return
+        }
+        throw e
       }
-      const loginChain = getAppChainById(loginChainId)
-      if (!loginChain) {
-        setErrorMessage(getUnsupportedNetworkMessage({ short: true }))
+      if (!getAppChainById(loginChain.id)) {
+        setErrorMessage(`Could not switch to ${loginChain.name}.`)
         return
       }
 
@@ -229,31 +221,35 @@ const AdminLoginPage = () => {
           <button
             type="button"
             onClick={() => void handlePrivyLogin()}
-            disabled={busy}
+            disabled={busy || !privyReady}
             className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
           >
             <div className="flex items-center gap-3 min-w-0">
               <img src={privyIcon} alt="" className="inline-block w-[22px] h-[22px]" />
               <span className="text-[#2B2F36] font-semibold truncate">Continue with Google or email</span>
             </div>
-            <span className="text-[14px] text-[#6B7280] shrink-0">{connecting ? 'Opening…' : 'Login'}</span>
+            <span className="text-[14px] text-[#6B7280] shrink-0">
+              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Login'}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => void handleConnectExternalWallet()}
-            disabled={busy}
+            disabled={busy || !privyReady}
             className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
           >
             <span className="text-[#2B2F36] font-semibold truncate">Connect external wallet</span>
-            <span className="text-[14px] text-[#6B7280] shrink-0">{connecting ? 'Opening…' : 'Connect'}</span>
+            <span className="text-[14px] text-[#6B7280] shrink-0">
+              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Connect'}
+            </span>
           </button>
         </div>
 
         <button
           type="button"
           onClick={() => void handleSignIn()}
-          disabled={!isConnected || busy}
+          disabled={!isConnected || !walletsReady || busy}
           className="mt-8 w-full rounded-xl bg-[#1D61C1] py-4 text-base font-semibold text-white shadow-md shadow-[#1D61C1]/25 transition-[background-color,transform,box-shadow] hover:bg-[#1955AD] hover:shadow-lg hover:shadow-[#1D61C1]/30 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed sm:rounded-2xl sm:py-4.5"
         >
           {authInFlight ? 'Signing in…' : 'Sign In'}

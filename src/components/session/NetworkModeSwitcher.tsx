@@ -21,6 +21,10 @@ export function readPreferredNetwork(): NetworkChoice {
   return 'testnet'
 }
 
+export function selectedNetworkChain() {
+  return readPreferredNetwork() === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
+}
+
 function writePreferredNetwork(choice: NetworkChoice) {
   try {
     localStorage.setItem(PREFERRED_NETWORK_KEY, choice)

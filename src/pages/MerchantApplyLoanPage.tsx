@@ -23,7 +23,10 @@ import {
   riskTierSelectLabel,
 } from '@/utils/loanTierCalculations'
 import FistReceivableAgreementModal from '@/components/dashboard/merchant/loan/FistReceivableAgreementModal'
-import { FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION } from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
+import {
+  fetchCurrentFinancingAgreement,
+  type FinancingAgreementDocument,
+} from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
 
 type ApplyLoanLocationState = {
   restoreDraft?: boolean
@@ -122,6 +125,22 @@ const MerchantApplyLoanPage = () => {
   })
   const [agreementModalOpen, setAgreementModalOpen] = useState(false)
   const [hasReadAgreement, setHasReadAgreement] = useState(false)
+  const [currentAgreement, setCurrentAgreement] = useState<FinancingAgreementDocument | null>(null)
+  const [agreementLoadError, setAgreementLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchCurrentFinancingAgreement()
+      .then((document) => {
+        if (!cancelled) setCurrentAgreement(document)
+      })
+      .catch(() => {
+        if (!cancelled) setAgreementLoadError('The financing agreement could not be loaded.')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -308,6 +327,11 @@ const MerchantApplyLoanPage = () => {
       return
     }
 
+    if (!currentAgreement) {
+      setSubmitError(agreementLoadError || 'The financing agreement is still loading.')
+      return
+    }
+
     if (!hasReadAgreement) {
       setSubmitError('Please read and confirm the Fist Receivable Financing Agreement before submitting.')
       return
@@ -322,7 +346,8 @@ const MerchantApplyLoanPage = () => {
     form.append('loan_amount', String(amountNum))
     form.append('risk_tier_id', String(selectedTier.id))
     form.append('document', selectedDocument)
-    form.append('agreement_version', FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION)
+    form.append('agreement_version', currentAgreement.version)
+    form.append('agreement_content_hash', currentAgreement.contentHash)
     form.append('financing_amount', String(amountNum))
     if (repaymentAmount.trim()) {
       const repayNum = parseLoanAmountInput(repaymentAmount)
@@ -600,6 +625,7 @@ const MerchantApplyLoanPage = () => {
             className="mt-4 text-[#195EBC] text-[13px] font-semibold hover:underline text-left"
           >
             View Fist Receivable Financing Agreement
+            {currentAgreement ? ` · Version ${currentAgreement.version}` : ''}
             {hasReadAgreement ? (
               <span className="ml-2 text-[#16A34A] font-medium no-underline">(read)</span>
             ) : null}
@@ -689,6 +715,8 @@ const MerchantApplyLoanPage = () => {
 
       <FistReceivableAgreementModal
         open={agreementModalOpen}
+        blocks={currentAgreement?.blocks ?? []}
+        version={currentAgreement?.version ?? ''}
         onClose={() => setAgreementModalOpen(false)}
         onConfirmRead={() => {
           setHasReadAgreement(true)

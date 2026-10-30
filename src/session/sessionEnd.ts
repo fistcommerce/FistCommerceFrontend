@@ -65,8 +65,8 @@ export function stashSessionEndMessage(reason: SessionEndReason, role: UserRole 
   }
 }
 
-/** Read and clear a pending session-end message (for connect-wallet UI). */
-export function consumeSessionEndMessage(): string | null {
+/** Read and clear a pending session-end message (for connect-wallet and admin login). */
+export function consumeSessionEndMessage(options?: { isAdmin?: boolean }): string | null {
   if (typeof window === 'undefined') return null
   try {
     const raw = window.sessionStorage.getItem(SESSION_END_STORAGE_KEY)
@@ -75,7 +75,7 @@ export function consumeSessionEndMessage(): string | null {
     const parsed = JSON.parse(raw) as Partial<SessionEndPayload>
     const reason = parsed.reason
     if (!reason || !(reason in SESSION_END_MESSAGES)) return null
-    return SESSION_END_MESSAGES[reason as SessionEndReason]
+    return getSessionEndMessage(reason, options)
   } catch {
     try {
       window.sessionStorage.removeItem(SESSION_END_STORAGE_KEY)

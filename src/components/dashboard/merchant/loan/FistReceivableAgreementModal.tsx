@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type MouseEvent, type UIEvent } from 'react'
 
-import {
-  FIST_RECEIVABLE_FINANCING_AGREEMENT_BLOCKS,
-  FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION,
-  type AgreementContentBlock,
-} from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
+import AgreementDocumentBody from '@/components/dashboard/merchant/loan/AgreementDocumentBody'
+import type { AgreementContentBlock } from '@/components/dashboard/merchant/loan/fistReceivableFinancingAgreement'
 
 const SCROLL_END_THRESHOLD_PX = 28
 const SCROLL_HINT =
@@ -12,117 +9,16 @@ const SCROLL_HINT =
 
 export type FistReceivableAgreementModalProps = {
   open: boolean
+  blocks: readonly AgreementContentBlock[]
+  version: string
   onClose: () => void
   onConfirmRead: () => void
 }
 
-function groupBulletRuns(blocks: readonly AgreementContentBlock[]) {
-  const groups: Array<
-    | { kind: 'single'; block: AgreementContentBlock; index: number }
-    | { kind: 'bullets'; items: string[]; startIndex: number }
-  > = []
-
-  let i = 0
-  while (i < blocks.length) {
-    const block = blocks[i]!
-    if (block.type === 'bullet') {
-      const items: string[] = []
-      const startIndex = i
-      while (i < blocks.length && blocks[i]!.type === 'bullet') {
-        items.push((blocks[i] as Extract<AgreementContentBlock, { type: 'bullet' }>).text)
-        i += 1
-      }
-      groups.push({ kind: 'bullets', items, startIndex })
-      continue
-    }
-    groups.push({ kind: 'single', block, index: i })
-    i += 1
-  }
-  return groups
-}
-
-function AgreementBody() {
-  const groups = groupBulletRuns(FIST_RECEIVABLE_FINANCING_AGREEMENT_BLOCKS)
-
-  return (
-    <article className="mx-auto max-w-[640px]">
-      <div className="rounded-[8px] border border-[#E6E8EC] bg-[#FCFCFD] px-4 py-5 sm:px-6 sm:py-6">
-        {groups.map((group) => {
-          if (group.kind === 'bullets') {
-            return (
-              <ul
-                key={`bullets-${group.startIndex}`}
-                className="mt-2 list-disc space-y-1.5 pl-5 text-[#334155] text-[13px] leading-relaxed"
-              >
-                {group.items.map((item, itemIndex) => (
-                  <li key={`${group.startIndex}-${itemIndex}`}>{item}</li>
-                ))}
-              </ul>
-            )
-          }
-
-          const { block, index } = group
-          switch (block.type) {
-            case 'docTitle':
-              return (
-                <h3
-                  key={index}
-                  className="text-center text-[#0B1220] text-[15px] sm:text-[16px] font-bold tracking-wide"
-                >
-                  {block.text}
-                </h3>
-              )
-            case 'meta':
-              return (
-                <div
-                  key={index}
-                  className={`${index === 1 ? 'mt-4' : 'mt-2'} flex flex-col gap-0.5 sm:flex-row sm:gap-2 text-[13px]`}
-                >
-                  <span className="shrink-0 font-semibold text-[#0B1220]">{block.label}:</span>
-                  <span className="text-[#334155]">{block.text}</span>
-                </div>
-              )
-            case 'party':
-              return (
-                <p
-                  key={index}
-                  className="mt-2 rounded-[6px] border border-[#E6E8EC] bg-white px-3 py-2 text-[#0B1220] text-[13px] leading-relaxed"
-                >
-                  {block.text}
-                </p>
-              )
-            case 'sectionHeading':
-              return (
-                <h4
-                  key={index}
-                  className="mt-6 text-[#0B1220] text-[15px] font-semibold"
-                >
-                  {block.text}
-                </h4>
-              )
-            case 'subheading':
-              return (
-                <p key={index} className="mt-3 text-[#0B1220] text-[13px] font-semibold">
-                  {block.text}
-                </p>
-              )
-            case 'paragraph':
-              return (
-                <p key={index} className="mt-2 text-[#334155] text-[13px] leading-relaxed">
-                  {block.text}
-                </p>
-              )
-            default:
-              return null
-          }
-        })}
-      </div>
-    </article>
-  )
-}
-
 export default function FistReceivableAgreementModal({
   open,
+  blocks,
+  version,
   onClose,
   onConfirmRead,
 }: FistReceivableAgreementModalProps) {
@@ -209,7 +105,7 @@ export default function FistReceivableAgreementModal({
               FIST RECEIVABLE FINANCING AGREEMENT
             </h2>
             <p className="mt-1 text-[#6B7488] text-[12px]">
-              Agreement Version: {FIST_RECEIVABLE_FINANCING_AGREEMENT_VERSION}
+              Agreement Version: {version || '…'}
             </p>
           </div>
           <button
@@ -229,7 +125,11 @@ export default function FistReceivableAgreementModal({
           onScroll={handleScroll}
           className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6"
         >
-          <AgreementBody />
+          {blocks.length ? (
+            <AgreementDocumentBody blocks={blocks} />
+          ) : (
+            <p className="text-[14px] text-[#6B7488]">Loading the agreement…</p>
+          )}
         </div>
 
         <footer className="shrink-0 border-t border-[#E6E8EC] bg-white px-4 py-3 sm:px-5 sm:py-4">

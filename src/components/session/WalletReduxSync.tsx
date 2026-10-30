@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePrivy } from '@privy-io/react-auth'
 
 import { logoutAdminSession } from '@/session/logoutAdminSession'
-import { endAppSessionAndRedirect } from '@/session/sessionEnd'
+import { endAppSessionAndRedirect, stashSessionEndMessage, type SessionEndReason } from '@/session/sessionEnd'
 import {
   ADMIN_LOGIN_PATH,
   isAdminDashboardPath,
@@ -17,7 +17,6 @@ import { patchAuth } from '@/store/slices/authSlice'
 import { setWalletFromProvider } from '@/store/slices/walletSlice'
 import { syncWalletChainIdFromProviderToRedux } from '@/wallet/syncWalletChainToRedux'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
-import type { SessionEndReason } from '@/session/sessionEnd'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 
 /**
@@ -88,6 +87,7 @@ function resetWalletAppSessionAndRedirect(dispatch: AppDispatch, reason: Session
     (onAdminDashboard && isAdminSession(accessToken, sessionKind)) ||
     shouldRedirectToAdminLogin({ accessToken, sessionKind, pathname })
   ) {
+    stashSessionEndMessage(reason, null)
     void logoutAdminSession(dispatch).catch(() => {
       window.location.assign(ADMIN_LOGIN_PATH)
     })
@@ -317,7 +317,8 @@ export default function WalletReduxSync() {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const refreshToken = useAppSelector((s) => s.auth.refreshToken)
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
-  const lastBoundChainRef = useRef<number | null>(null)
+  /** Auth chain the provider has actually reported since this session started. */
+  const confirmedAuthChainRef = useRef<number | null>(null)
   const chainLogoutTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -330,32 +331,36 @@ export default function WalletReduxSync() {
   }, [])
 
   useEffect(() => {
-    const hasTokens =
-      Boolean(refreshToken?.trim()) || isUsableApiAccessToken(accessToken)
-    if (!hasTokens || authChainId == null) {
-      lastBoundChainRef.current = authChainId
-      return
-    }
-    // Wait for a real provider chain before treating mismatch as a user switch.
-    if (!privyReady || !walletsReady || walletChainId == null || writePending) {
-      if (writePending && chainLogoutTimerRef.current) {
-        clearTimeout(chainLogoutTimerRef.current)
-        chainLogoutTimerRef.current = null
-      }
-      return
-    }
-
-    // Establish baseline after login without treating first sync as a change.
-    if (lastBoundChainRef.current == null) {
-      lastBoundChainRef.current = authChainId
-    }
-
-    if (walletChainId === authChainId) {
-      lastBoundChainRef.current = authChainId
+    const clearChainLogoutTimer = () => {
       if (chainLogoutTimerRef.current) {
         clearTimeout(chainLogoutTimerRef.current)
         chainLogoutTimerRef.current = null
       }
+    }
+
+    const hasTokens =
+      Boolean(refreshToken?.trim()) || isUsableApiAccessToken(accessToken)
+    if (!hasTokens || authChainId == null) {
+      confirmedAuthChainRef.current = null
+      clearChainLogoutTimer()
+      return
+    }
+    // A missing or in-flight provider chain is not a user switch. The value already
+    // in Redux at login is often the previous network until eth_chainId returns.
+    if (!privyReady || !walletsReady || walletChainId == null || writePending) {
+      clearChainLogoutTimer()
+      return
+    }
+
+    if (walletChainId === authChainId) {
+      confirmedAuthChainRef.current = authChainId
+      clearChainLogoutTimer()
+      return
+    }
+
+    // Ignore the pre-login chain until this session's network has been seen once.
+    if (confirmedAuthChainRef.current !== authChainId) {
+      clearChainLogoutTimer()
       return
     }
 
@@ -372,7 +377,8 @@ export default function WalletReduxSync() {
       if (state.wallet.chainId == null) return
       if (state.wallet.chainId === state.auth.chainId) return
       if (state.wallet.writePending) return
-      lastBoundChainRef.current = null
+      if (confirmedAuthChainRef.current !== state.auth.chainId) return
+      confirmedAuthChainRef.current = null
       resetWalletAppSessionAndRedirect(dispatch, 'chain_mismatch')
     }, CHAIN_MISMATCH_LOGOUT_MS)
   }, [dispatch, authChainId, accessToken, refreshToken, walletChainId, privyReady, walletsReady, writePending])

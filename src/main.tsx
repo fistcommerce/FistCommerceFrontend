@@ -66,18 +66,31 @@ const privyConfig: PrivyClientConfig = {
   },
 }
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+// Privy's embedded-wallet frame allows http://localhost:5173 as a local parent, and
+// blocks 127.0.0.1. On the blocked origin the frame never signals ready, so Connect
+// stays on "wallet still loading". Send that host to localhost before Privy mounts.
+const blockedLocalWalletOrigin =
+  import.meta.env.DEV && window.location.hostname === '127.0.0.1'
+
+if (blockedLocalWalletOrigin) {
+  const next = new URL(window.location.href)
+  next.hostname = 'localhost'
+  window.location.replace(next.toString())
+} else {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
     <Provider store={store}>
       <PersistGate loading={<FullPageLoading label="Restoring your session…" />} persistor={persistor}>
-        <AuthStorageSync />
+        {/* Keep Privy outside StrictMode so its one-shot iframe ready handshake is not dropped. */}
         <PrivyProvider appId={privyAppId ?? ''} config={privyConfig}>
-          <QueryClientProvider client={queryClient}>
-            <WalletReduxSync />
-            <App />
-          </QueryClientProvider>
+          <React.StrictMode>
+            <AuthStorageSync />
+            <QueryClientProvider client={queryClient}>
+              <WalletReduxSync />
+              <App />
+            </QueryClientProvider>
+          </React.StrictMode>
         </PrivyProvider>
       </PersistGate>
-    </Provider>
-  </React.StrictMode>,
-)
+    </Provider>,
+  )
+}

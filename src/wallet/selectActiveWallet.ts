@@ -16,12 +16,14 @@ function isWalletConnectWallet(w: ConnectedWallet): boolean {
 /**
  * Deterministically select an active wallet from Privy wallets.
  *
- * Priority:
- * 1) user-preferred (if present)
- * 2) injected (metamask, phantom, then any other non-WC / non-embedded)
- * 3) wallet_connect
- * 4) privy (embedded)
- * 5) fallback to first
+ * A preferred address that is not in the list stays unresolved. Falling through
+ * to MetaMask or an embedded wallet looks like a wallet change and ends the session.
+ *
+ * Priority when nothing is preferred:
+ * 1) injected (metamask, phantom, then any other non-WC / non-embedded)
+ * 2) wallet_connect
+ * 3) privy (embedded)
+ * 4) fallback to first
  */
 export function selectActiveWallet(
   wallets: readonly ConnectedWallet[] | null | undefined,
@@ -31,8 +33,9 @@ export function selectActiveWallet(
 
   const preferred = (opts?.preferredWalletId ?? '').trim()
   if (preferred) {
-    const byAddress = wallets.find((w) => (w.address ?? '').toLowerCase() === preferred.toLowerCase())
-    if (byAddress) return byAddress
+    return (
+      wallets.find((w) => (w.address ?? '').toLowerCase() === preferred.toLowerCase()) ?? null
+    )
   }
 
   const injectedPriority = new Set(['metamask', 'phantom'])

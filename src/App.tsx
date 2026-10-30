@@ -63,6 +63,7 @@ import AdminLoanMonitoringDetailPage from '@/pages/AdminLoanMonitoringDetailPage
 import AdminLoanMonitoringPage from '@/pages/AdminLoanMonitoringPage'
 import AdminSectionPlaceholderPage from '@/pages/AdminSectionPlaceholderPage'
 import AdminEvidenceRegisterPage from '@/pages/AdminEvidenceRegisterPage'
+import AdminAgreementsPage from '@/pages/AdminAgreementsPage'
 import InvestorPoolDocumentsPage from '@/pages/InvestorPoolDocumentsPage'
 import { ReceivableAgreementPage, ReceivableInvoicePage } from '@/pages/ReceivableDocumentPage'
 import MerchantDocumentsPage from '@/pages/MerchantDocumentsPage'
@@ -391,6 +392,10 @@ const router = createBrowserRouter([
               {
                 path: 'evidence-register',
                 element: <AdminEvidenceRegisterPage />,
+              },
+              {
+                path: 'agreements',
+                element: <AdminAgreementsPage />,
               },
               {
                 path: 'receivables',
