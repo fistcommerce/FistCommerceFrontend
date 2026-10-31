@@ -94,7 +94,9 @@ const authSlice = createSlice({
     patchAuth: (state, action: PayloadAction<Partial<SessionState>>) => {
       if (action.payload.accessToken !== undefined) {
         const next = sanitizeAccessToken(action.payload.accessToken)
-        if (next && next !== state.accessToken) {
+        // Re-login often returns the same key. Still mark it as just issued so a
+        // wallet flicker in the next few seconds cannot treat the session as stale.
+        if (next) {
           state.authIssuedAt = Date.now()
           state.sessionExpired = false
           state.sessionExpiredReason = null

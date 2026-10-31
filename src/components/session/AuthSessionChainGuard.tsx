@@ -1,23 +1,20 @@
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { selectIsPersistReady } from '@/store/selectors/sessionSelectors'
-import { patchAuth, resetAuth } from '@/store/slices/authSlice'
-import { isSupportedAppChainId } from '@/wallet/appChain'
+import { patchAuth } from '@/store/slices/authSlice'
 
 /**
- * Clears corrupt persisted sessions and sticky “session expired” with no credentials.
- * Wallet↔session chain switches while logged in are handled by `WalletReduxSync`.
+ * Clears a sticky “session expired” flag when no credentials remain.
+ * A chain id on the wallet does not end the API session.
  */
 export default function AuthSessionChainGuard() {
   const dispatch = useAppDispatch()
   const persistedReady = useAppSelector(selectIsPersistReady)
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const refreshToken = useAppSelector((s) => s.auth.refreshToken)
-  const authChainId = useAppSelector((s) => s.auth.chainId)
   const sessionExpired = useAppSelector((s) => s.auth.sessionExpired)
-  const handledKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!persistedReady) return
@@ -37,18 +34,8 @@ export default function AuthSessionChainGuard() {
           wallet: null,
         }),
       )
-      return
     }
-
-    if (!hasUsableTokens) return
-
-    if (authChainId == null || !isSupportedAppChainId(authChainId)) {
-      const key = `invalid:${authChainId ?? 'null'}`
-      if (handledKeyRef.current === key) return
-      handledKeyRef.current = key
-      dispatch(resetAuth())
-    }
-  }, [dispatch, persistedReady, accessToken, refreshToken, authChainId, sessionExpired])
+  }, [dispatch, persistedReady, accessToken, refreshToken, sessionExpired])
 
   return null
 }

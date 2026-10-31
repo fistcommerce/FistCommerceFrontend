@@ -57,12 +57,12 @@ export function ReceivableInvoicePage() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const documentUrl = bundle?.invoice?.documentUrl?.trim() || ''
-  const fileHref =
-    downloadUrl ||
-    (documentUrl.startsWith('http://') || documentUrl.startsWith('https://') ? documentUrl : '')
+  const directFile =
+    documentUrl.startsWith('http://') || documentUrl.startsWith('https://') ? documentUrl : ''
+  const fileHref = directFile || downloadUrl || ''
 
   useEffect(() => {
-    if (!accessToken.trim() || !loanId || !documentUrl) return
+    if (!accessToken.trim() || !loanId || !documentUrl || directFile) return
     let cancelled = false
     fetchInvoiceDownload(accessToken, loanId)
       .then((data) => {
@@ -78,7 +78,7 @@ export function ReceivableInvoicePage() {
     return () => {
       cancelled = true
     }
-  }, [accessToken, loanId, documentUrl])
+  }, [accessToken, loanId, documentUrl, directFile])
 
   if (!accessToken.trim()) return <Navigate to="/continue" replace />
 

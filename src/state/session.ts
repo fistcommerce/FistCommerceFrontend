@@ -40,7 +40,11 @@ export async function refreshSessionTokensFromApi(): Promise<{
       }),
     )
     return tokens
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (/refresh token expired|invalid refresh token/i.test(message)) {
+      throw error
+    }
     return null
   }
 }

@@ -1,6 +1,4 @@
-import { MAX_AUTHORIZATION_HEADER_CHARS } from '@/auth/accessTokenPolicy'
 import type { SessionEndReason } from '@/session/sessionEnd'
-import type { RootState } from '@/store'
 
 /** Marks that token refresh already ran for this logical request (prevents refresh loops). */
 const AUTH_RETRIED = Symbol('authRetried')
@@ -53,12 +51,6 @@ function usesDrfTokenAuth(headers: RequestInit['headers']): boolean {
   return /^Token\s+\S+/i.test(raw.trim())
 }
 
-/** nginx / proxies often return 400 HTML with "Request Header Or Cookie Too Large". */
-function isLikelyProxyRequestHeaderTooLargeBody(text: string): boolean {
-  const s = text.slice(0, 2048).toLowerCase()
-  return s.includes('request header') && s.includes('large')
-}
-
 async function readFailureBodySnippet(res: Response): Promise<string> {
   try {
     return (await res.clone().text()).slice(0, 4096)
@@ -108,34 +100,6 @@ function isVerificationDenialMessage(message: string): boolean {
   )
 }
 
-/** Classic credential / token failures (session should refresh or end). */
-function isLikelyCredentialAuthFailureMessage(message: string): boolean {
-  const t = message.trim()
-  if (!t) return true
-  return (
-    /invalid token/i.test(t) ||
-    /token expired/i.test(t) ||
-    /token not valid/i.test(t) ||
-    /authentication credentials/i.test(t) ||
-    /not authenticated/i.test(t) ||
-    /authentication failed/i.test(t) ||
-    /please (log|sign) in/i.test(t) ||
-    /login required/i.test(t) ||
-    /^unauthorized$/i.test(t)
-  )
-}
-
-/**
- * Expire only when a 401 is unexpected for this user's verification level.
- * Verification denials never expire. Verified users: any remaining 401 expires.
- * Unverified: expire only for clear credential failures (so mid-KYC isn't kicked for ambiguous gates).
- */
-function shouldExpireSessionOnAuthFailure(failureMessage: string, isKycVerified: boolean): boolean {
-  if (isVerificationDenialMessage(failureMessage)) return false
-  if (isKycVerified) return true
-  return isLikelyCredentialAuthFailureMessage(failureMessage)
-}
-
 type RefreshSessionResult = Awaited<
   ReturnType<typeof import('@/state/session').refreshSessionTokensFromApi>
 >
@@ -176,6 +140,10 @@ async function endSessionAfterAuthFailure(
     if (current && failed && current !== failed) {
       return
     }
+    // Session was already cleared. A late 401 must not raise the expired modal again.
+    if (!current && failed) {
+      return
+    }
   }
 
   if (!options?.skipFreshAuthGrace && isWithinFreshAuthGrace(authIssuedAt)) {
@@ -192,21 +160,20 @@ async function endSessionAfterAuthFailure(
   })
 }
 
-async function resolveIsKycVerified(state: RootState): Promise<boolean> {
-  const { selectIsKycVerified } = await import('@/store/selectors/sessionSelectors')
-  return selectIsKycVerified(state)
+function isExpiredCredentialMessage(message: string): boolean {
+  return /session expired|refresh token expired|invalid refresh token|invalid token|token expired|token not valid/i.test(
+    message,
+  )
 }
 
 /**
  * Performs `fetch`, then:
- * - **Preflight**: if `Authorization: Token …` exceeds client/header limits → session end (no network).
- * - **431 / 413 / narrow 400** (proxy “header too large”) + Token auth → session end (no refresh).
  * - **401** + Token auth:
- *   - KYC / verification denial body → return to caller (no refresh, no expiry).
- *   - Otherwise refresh once (coalesced) and retry once (admin and app sessions).
- *   - Refresh failure or second 401 → expire session only when unexpected for verification level.
- *     Admin sessions always expire if refresh is missing or fails.
- * - **403** is a permission/resource error for the caller (does not clear the session).
+ *   - KYC / verification denial body → return to caller (no refresh, no sign-out).
+ *   - Expired access session → refresh once and retry.
+ *   - Sign out only when the refresh token is expired or invalid, or the access token is
+ *     rejected and there is no refresh token left to renew it.
+ * - Oversized headers, wallet/chain changes, and **403** permission errors do not end the session.
  *
  * Uses dynamic `import()` for the Redux store and session refresh so this module does not create a
  * circular dependency with `store/index.ts`.
@@ -218,43 +185,13 @@ export async function fetchWithAuthRecovery(
   const requestAuthHeader = authorizationHeaderFromInit(init.headers)
   const requestAccessToken = accessTokenFromAuthHeader(requestAuthHeader)
 
-  if (usesDrfTokenAuth(init.headers)) {
-    if (requestAuthHeader && requestAuthHeader.length > MAX_AUTHORIZATION_HEADER_CHARS) {
-      await endSessionAfterAuthFailure('header_too_large', {
-        failedAccessToken: requestAccessToken,
-      })
-      return new Response(null, { status: 431 })
-    }
-  }
-
   const res = await fetch(input, init)
   if (res.ok) {
     return res
   }
 
   const tokenAuth = usesDrfTokenAuth(init.headers)
-  if (tokenAuth && (res.status === 431 || res.status === 413)) {
-    await endSessionAfterAuthFailure('header_too_large', {
-      failedAccessToken: requestAccessToken,
-    })
-    return res
-  }
-
-  if (tokenAuth && res.status === 400) {
-    const bodySnippet = await readFailureBodySnippet(res)
-    if (isLikelyProxyRequestHeaderTooLargeBody(bodySnippet)) {
-      await endSessionAfterAuthFailure('header_too_large', {
-        failedAccessToken: requestAccessToken,
-      })
-      return res
-    }
-  }
-
-  if (!isAuthFailureStatus(res.status)) {
-    return res
-  }
-
-  if (!tokenAuth) {
+  if (!isAuthFailureStatus(res.status) || !tokenAuth) {
     return res
   }
 
@@ -265,16 +202,35 @@ export async function fetchWithAuthRecovery(
     return res
   }
 
+  if (!isExpiredCredentialMessage(failureMessage)) {
+    return res
+  }
+
   const { store } = await import('@/store')
   const state = store.getState()
-  const { sessionKind, authIssuedAt } = state.auth
-  const isKycVerified = await resolveIsKycVerified(state)
-  const isAdminSession = sessionKind === 'admin'
-  const shouldExpire =
-    isAdminSession || shouldExpireSessionOnAuthFailure(failureMessage, isKycVerified)
 
   if (hasAuthRetried(init)) {
-    if (shouldExpire) {
+    await endSessionAfterAuthFailure('refresh_expired', {
+      failedAccessToken: requestAccessToken,
+      skipFreshAuthGrace: true,
+    })
+    return res
+  }
+
+  const { refreshToken } = state.auth
+  if (!refreshToken?.trim()) {
+    await endSessionAfterAuthFailure('refresh_expired', {
+      failedAccessToken: requestAccessToken,
+    })
+    return res
+  }
+
+  let tokens: RefreshSessionResult
+  try {
+    tokens = await coalescedRefreshSessionTokens()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ''
+    if (/refresh token expired|invalid refresh token/i.test(message)) {
       await endSessionAfterAuthFailure('refresh_expired', {
         failedAccessToken: requestAccessToken,
         skipFreshAuthGrace: true,
@@ -282,37 +238,7 @@ export async function fetchWithAuthRecovery(
     }
     return res
   }
-
-  const { refreshToken } = state.auth
-  if (!refreshToken?.trim()) {
-    if (isAdminSession && isWithinFreshAuthGrace(authIssuedAt)) {
-      return res
-    }
-    if (shouldExpire) {
-      await endSessionAfterAuthFailure('missing_refresh', {
-        failedAccessToken: requestAccessToken,
-      })
-    }
-    return res
-  }
-
-  // Single coalesced refresh (even mid-KYC — profile/KYC calls still need a live token).
-  const tokens = await coalescedRefreshSessionTokens()
   if (!tokens) {
-    const latest = store.getState()
-    const latestVerified = await resolveIsKycVerified(latest)
-    const expireAfterRefreshFail =
-      latest.auth.sessionKind === 'admin' ||
-      shouldExpireSessionOnAuthFailure(failureMessage, latestVerified)
-    if (expireAfterRefreshFail) {
-      await endSessionAfterAuthFailure('refresh_failed', {
-        failedAccessToken: requestAccessToken,
-        skipFreshAuthGrace:
-          latest.auth.sessionKind === 'admin' ||
-          latestVerified ||
-          isLikelyCredentialAuthFailureMessage(failureMessage),
-      })
-    }
     return res
   }
 

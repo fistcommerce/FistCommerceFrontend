@@ -36,6 +36,8 @@ export default function SessionExpiredModal() {
   const [loggingOut, setLoggingOut] = useState(false)
 
   if (!sessionExpired) return null
+  // Connect-wallet and the rest of onboarding already show the session-end message inline.
+  if (pathname === '/onboarding' || pathname.startsWith('/onboarding/')) return null
 
   const isAdminRecovery = shouldRedirectToAdminLogin({
     accessToken,
