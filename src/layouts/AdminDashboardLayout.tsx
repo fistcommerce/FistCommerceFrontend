@@ -6,6 +6,9 @@ import AdminSideNav from '@/components/admin/AdminSideNav'
 import AdminTopBar from '@/components/admin/AdminTopBar'
 import DashboardErrorModal from '@/components/dashboard/shared/DashboardErrorModal'
 import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
+import SorobanBanner from '@/stellar/SorobanBanner'
+import SorobanDemoPanel from '@/stellar/SorobanDemoPanel'
+import { useIsSorobanMode } from '@/hooks/useNetworkCapability'
 import { useConnectWalletAction } from '@/hooks/useConnectWalletAction'
 import { useWallet } from '@/hooks/useWallet'
 import { useAppSelector } from '@/store/hooks'
@@ -99,6 +102,8 @@ const AdminDashboardLayout = () => {
     clearError: clearConnectWalletError,
   } = useConnectWalletAction()
 
+  const sorobanMode = useIsSorobanMode()
+
   return (
     <main className="h-dvh w-full bg-[#EEF0F4] flex overflow-hidden">
       <AdminFetchErrorModal />
@@ -131,11 +136,12 @@ const AdminDashboardLayout = () => {
       ) : null}
 
       <div className="flex-1 flex flex-col min-w-0">
+        <SorobanBanner />
         <AdminTopBar
           title={pageTitle}
           leading={topBarLeading}
           walletDisplay={shortAddress ?? undefined}
-          networkDisplayName={networkDisplayName}
+          networkDisplayName={sorobanMode ? 'Soroban Testnet' : networkDisplayName}
           onConnectWallet={() => void connectWallet()}
           connectWalletPending={connectWalletPending}
           onMenuClick={() => setMobileNavOpen((v) => !v)}
@@ -149,6 +155,7 @@ const AdminDashboardLayout = () => {
         )}
 
         <div data-dashboard-scroll className="px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto flex-1 min-h-0">
+          {sorobanMode ? <SorobanDemoPanel /> : null}
           <Outlet />
         </div>
       </div>

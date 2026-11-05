@@ -1,70 +1,66 @@
 import { useCallback, useState } from 'react'
 
 import { isLocalOnlyDeployMode } from '@/contract_config/contractNetwork'
+import {
+  type PreferredNetwork,
+  readPreferredAppNetwork,
+  writePreferredAppNetwork,
+} from '@/contract_config/networkCapabilities'
 import { MAINNET_CHAIN, TESTNET_CHAIN } from '@/wallet/appChain'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { formatWalletChainSwitchError } from '@/wallet/walletChainErrors'
 import { ensureWalletChain } from '@/wallet/viemClients'
 import { useAppSelector } from '@/store/hooks'
 
-type NetworkChoice = 'testnet' | 'mainnet'
-
-const PREFERRED_NETWORK_KEY = 'fistcommerce.preferredNetwork'
-
-export function readPreferredNetwork(): NetworkChoice {
-  try {
-    const raw = localStorage.getItem(PREFERRED_NETWORK_KEY)
-    if (raw === 'mainnet' || raw === 'testnet') return raw
-  } catch {
-    /* ignore */
-  }
-  return 'testnet'
+/** @deprecated Prefer readPreferredAppNetwork from networkCapabilities */
+export function readPreferredNetwork(): Exclude<PreferredNetwork, 'soroban-testnet'> {
+  const n = readPreferredAppNetwork()
+  return n === 'soroban-testnet' ? 'testnet' : n
 }
 
 export function selectedNetworkChain() {
-  return readPreferredNetwork() === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
-}
-
-function writePreferredNetwork(choice: NetworkChoice) {
-  try {
-    localStorage.setItem(PREFERRED_NETWORK_KEY, choice)
-  } catch {
-    /* ignore */
-  }
+  return readPreferredAppNetwork() === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
 }
 
 type NetworkModeSwitcherProps = {
-  /** Extra classes for the outer wrapper (e.g. absolute positioning). */
   className?: string
-  /** Compact for tight headers. */
   compact?: boolean
 }
 
 /**
- * Testnet / Mainnet control for connect-wallet and admin login screens.
- * Switches the connected wallet when present; stores a preference otherwise.
+ * Arbitrum Testnet / Mainnet / Soroban Testnet control.
+ * Soroban mode stores preference only (no EIP-155 chain switch).
  */
 export default function NetworkModeSwitcher({ className, compact }: NetworkModeSwitcherProps) {
   const { wallet, isConnected } = useActiveWallet()
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [preferred, setPreferred] = useState<NetworkChoice>(() => readPreferredNetwork())
+  const [preferred, setPreferred] = useState<PreferredNetwork>(() => readPreferredAppNetwork())
 
-  const active: NetworkChoice =
-    walletChainId === MAINNET_CHAIN.id
-      ? 'mainnet'
-      : walletChainId === TESTNET_CHAIN.id
-        ? 'testnet'
-        : preferred
+  const active: PreferredNetwork =
+    preferred === 'soroban-testnet'
+      ? 'soroban-testnet'
+      : walletChainId === MAINNET_CHAIN.id
+        ? 'mainnet'
+        : walletChainId === TESTNET_CHAIN.id
+          ? 'testnet'
+          : preferred === 'mainnet'
+            ? 'mainnet'
+            : 'testnet'
 
   const select = useCallback(
-    async (choice: NetworkChoice) => {
+    async (choice: PreferredNetwork) => {
       if (switching) return
       if (isLocalOnlyDeployMode()) return
       setError(null)
-      writePreferredNetwork(choice)
+      writePreferredAppNetwork(choice)
       setPreferred(choice)
+
+      if (choice === 'soroban-testnet') {
+        // Stellar session — no EIP-155 wallet_switchEthereumChain
+        return
+      }
 
       const target = choice === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
       if (!isConnected || !wallet) return
@@ -115,6 +111,15 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
           className={`${btnBase} rounded-[6px] ${active === 'mainnet' ? activeBtn : idleBtn}`}
         >
           {switching && preferred === 'mainnet' && active !== 'mainnet' ? 'Switching…' : 'Mainnet'}
+        </button>
+        <button
+          type="button"
+          disabled={switching}
+          aria-pressed={active === 'soroban-testnet'}
+          onClick={() => void select('soroban-testnet')}
+          className={`${btnBase} rounded-[6px] ${active === 'soroban-testnet' ? activeBtn : idleBtn}`}
+        >
+          Soroban
         </button>
       </div>
       {error ? (
