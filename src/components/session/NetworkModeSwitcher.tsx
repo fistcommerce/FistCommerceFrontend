@@ -13,9 +13,9 @@ import { ensureWalletChain } from '@/wallet/viemClients'
 import { useAppSelector } from '@/store/hooks'
 
 /** @deprecated Prefer readPreferredAppNetwork from networkCapabilities */
-export function readPreferredNetwork(): Exclude<PreferredNetwork, 'soroban-testnet'> {
+export function readPreferredNetwork(): Exclude<PreferredNetwork, 'stellar-testnet'> {
   const n = readPreferredAppNetwork()
-  return n === 'soroban-testnet' ? 'testnet' : n
+  return n === 'stellar-testnet' ? 'testnet' : n
 }
 
 export function selectedNetworkChain() {
@@ -28,8 +28,8 @@ type NetworkModeSwitcherProps = {
 }
 
 /**
- * Arbitrum Testnet / Mainnet / Soroban Testnet control.
- * Soroban mode stores preference only (no EIP-155 chain switch).
+ * Arbitrum Testnet / Mainnet / Stellar Testnet control.
+ * Stellar mode stores preference only (no EIP-155 chain switch).
  */
 export default function NetworkModeSwitcher({ className, compact }: NetworkModeSwitcherProps) {
   const { wallet, isConnected } = useActiveWallet()
@@ -39,8 +39,8 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
   const [preferred, setPreferred] = useState<PreferredNetwork>(() => readPreferredAppNetwork())
 
   const active: PreferredNetwork =
-    preferred === 'soroban-testnet'
-      ? 'soroban-testnet'
+    preferred === 'stellar-testnet'
+      ? 'stellar-testnet'
       : walletChainId === MAINNET_CHAIN.id
         ? 'mainnet'
         : walletChainId === TESTNET_CHAIN.id
@@ -57,7 +57,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
       writePreferredAppNetwork(choice)
       setPreferred(choice)
 
-      if (choice === 'soroban-testnet') {
+      if (choice === 'stellar-testnet') {
         // Stellar session — no EIP-155 wallet_switchEthereumChain
         return
       }
@@ -115,11 +115,11 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
         <button
           type="button"
           disabled={switching}
-          aria-pressed={active === 'soroban-testnet'}
-          onClick={() => void select('soroban-testnet')}
-          className={`${btnBase} rounded-[6px] ${active === 'soroban-testnet' ? activeBtn : idleBtn}`}
+          aria-pressed={active === 'stellar-testnet'}
+          onClick={() => void select('stellar-testnet')}
+          className={`${btnBase} rounded-[6px] ${active === 'stellar-testnet' ? activeBtn : idleBtn}`}
         >
-          Soroban
+          Stellar
         </button>
       </div>
       {error ? (

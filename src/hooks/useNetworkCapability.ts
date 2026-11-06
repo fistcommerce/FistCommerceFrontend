@@ -1,21 +1,25 @@
 import {
-  hasCapability,
-  isSorobanTestnetPreferred,
-  type NetworkCapability,
-  readPreferredAppNetwork,
   type AppNetworkMode,
+  type NetworkCapability,
+  hasCapability,
+  isStellarTestnetPreferred,
+  readPreferredAppNetwork,
 } from '@/contract_config/networkCapabilities'
-import { getContractNetworkMode } from '@/contract_config/contractNetwork'
 
-export function useAppNetworkMode(): AppNetworkMode {
-  if (isSorobanTestnetPreferred()) return 'soroban-testnet'
-  return getContractNetworkMode()
+export function resolveAppNetworkMode(): AppNetworkMode {
+  if (isStellarTestnetPreferred()) return 'stellar-testnet'
+  return readPreferredAppNetwork()
 }
 
-export function useNetworkCapability(cap: NetworkCapability): boolean {
-  return hasCapability(useAppNetworkMode(), cap)
+export function useHasCapability(cap: NetworkCapability): boolean {
+  return hasCapability(resolveAppNetworkMode(), cap)
 }
 
+export function useIsStellarMode(): boolean {
+  return readPreferredAppNetwork() === 'stellar-testnet'
+}
+
+/** @deprecated Use useIsStellarMode */
 export function useIsSorobanMode(): boolean {
-  return readPreferredAppNetwork() === 'soroban-testnet'
+  return useIsStellarMode()
 }

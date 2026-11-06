@@ -1,9 +1,9 @@
 /**
  * Capability map for Fist Commerce networks.
- * Soroban Testnet only enables features backed by deployed Soroban contracts.
+ * Stellar Testnet only enables features backed by deployed Soroban contracts.
  */
 
-export type AppNetworkMode = 'local' | 'testnet' | 'mainnet' | 'soroban-testnet'
+export type AppNetworkMode = 'local' | 'testnet' | 'mainnet' | 'stellar-testnet'
 
 export type NetworkCapability =
   | 'investorDeposit'
@@ -45,7 +45,7 @@ const EVM_FULL: ReadonlySet<NetworkCapability> = new Set([
 ])
 
 /** Track A always; Track B when modules are deployed (enabled here for gated FE). */
-const SOROBAN: ReadonlySet<NetworkCapability> = new Set([
+const STELLAR: ReadonlySet<NetworkCapability> = new Set([
   'investorDeposit',
   'investorWithdraw',
   'merchantApplyLoan',
@@ -61,11 +61,11 @@ const SOROBAN: ReadonlySet<NetworkCapability> = new Set([
   'riskTier',
   'subgraphMetrics',
   'defaultLossWriteOff',
-  // bridge + nftKyc remain EVM-only / hidden on Soroban
+  // bridge + nftKyc remain EVM-only / hidden on Stellar Testnet
 ])
 
 export function capabilitiesFor(mode: AppNetworkMode): ReadonlySet<NetworkCapability> {
-  if (mode === 'soroban-testnet') return SOROBAN
+  if (mode === 'stellar-testnet') return STELLAR
   return EVM_FULL
 }
 
@@ -75,12 +75,17 @@ export function hasCapability(mode: AppNetworkMode, cap: NetworkCapability): boo
 
 const PREFERRED_KEY = 'fistcommerce.preferredNetwork'
 
-export type PreferredNetwork = 'testnet' | 'mainnet' | 'soroban-testnet'
+export type PreferredNetwork = 'testnet' | 'mainnet' | 'stellar-testnet'
 
 export function readPreferredAppNetwork(): PreferredNetwork {
   try {
     const raw = localStorage.getItem(PREFERRED_KEY)
-    if (raw === 'mainnet' || raw === 'testnet' || raw === 'soroban-testnet') return raw
+    // Migrate legacy key from earlier Soroban Testnet wording
+    if (raw === 'soroban-testnet') {
+      writePreferredAppNetwork('stellar-testnet')
+      return 'stellar-testnet'
+    }
+    if (raw === 'mainnet' || raw === 'testnet' || raw === 'stellar-testnet') return raw
   } catch {
     /* ignore */
   }
@@ -95,6 +100,11 @@ export function writePreferredAppNetwork(choice: PreferredNetwork) {
   }
 }
 
+export function isStellarTestnetPreferred(): boolean {
+  return readPreferredAppNetwork() === 'stellar-testnet'
+}
+
+/** @deprecated Use isStellarTestnetPreferred */
 export function isSorobanTestnetPreferred(): boolean {
-  return readPreferredAppNetwork() === 'soroban-testnet'
+  return isStellarTestnetPreferred()
 }

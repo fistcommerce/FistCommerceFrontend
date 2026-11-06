@@ -141,7 +141,7 @@ const AdminDashboardLayout = () => {
           title={pageTitle}
           leading={topBarLeading}
           walletDisplay={shortAddress ?? undefined}
-          networkDisplayName={sorobanMode ? 'Soroban Testnet' : networkDisplayName}
+          networkDisplayName={sorobanMode ? 'Stellar Testnet' : networkDisplayName}
           onConnectWallet={() => void connectWallet()}
           connectWalletPending={connectWalletPending}
           onMenuClick={() => setMobileNavOpen((v) => !v)}
