@@ -8,9 +8,13 @@ import {
   getFundingPoolAddress,
 } from '@/contract_config/deployment'
 import { isLocalContractNetwork, isMainnetContractNetwork, modeFromChainId } from '@/contract_config/contractNetwork'
+import { isStellarTestnetPreferred } from '@/contract_config/networkCapabilities'
+import { isStellarChainId } from '@/stellar/chain'
 import type { RecentTx } from '@/components/dashboard/investor/lending-pool-detail/types'
 import { resolvePaginatedListTotal } from '@/utils/listPagination'
 import { getAppStore } from '@/store/storeRef'
+
+const STELLAR_TESTNET_EXPLORER_DEFAULT = 'https://stellar.expert/explorer/testnet'
 
 const RECENT_TRANSACTIONS_PATH = '/api/payout/recent-transactions/'
 
@@ -68,6 +72,18 @@ export function getDefaultArbitrumOneBlockExplorerBase(): string | null {
   return raw.replace(/\/+$/, '')
 }
 
+/** Vite: Stellar Testnet explorer origin (no trailing slash). */
+export function getDefaultStellarTestnetBlockExplorerBase(): string {
+  const raw =
+    readEnvTrim('VITE_STELLAR_TESTNET_BLOCK_EXPLORER_URL') || STELLAR_TESTNET_EXPLORER_DEFAULT
+  return raw.replace(/\/+$/, '')
+}
+
+function isStellarExplorerBase(base: string): boolean {
+  const b = base.trim().toLowerCase()
+  return b.includes('stellar.expert') || b.includes('stellarchain.io')
+}
+
 function resolveExplorerChainId(explicit?: number | null): number | null {
   if (explicit != null && Number.isFinite(explicit)) return Math.trunc(explicit)
   try {
@@ -99,6 +115,9 @@ export function getDefaultPoolContractAddress(chainId?: number | null): string |
 /** Block explorer origin when the API does not send one. */
 export function getDefaultBlockExplorerBase(chainId?: number | null): string | null {
   const id = resolveExplorerChainId(chainId)
+  if (isStellarChainId(id) || (id == null && isStellarTestnetPreferred())) {
+    return getDefaultStellarTestnetBlockExplorerBase()
+  }
   const mode = id != null ? modeFromChainId(id) : null
   if (mode === 'local' || (mode == null && isLocalContractNetwork())) {
     const raw = readEnvTrim('VITE_LOCAL_BLOCK_EXPLORER_URL')
@@ -129,7 +148,13 @@ export const getDefaultSepoliaPoolContractAddress = getDefaultArbitrumSepoliaPoo
 export function blockExplorerAddressUrl(base: string, address: string): string | null {
   const b = base.trim().replace(/\/+$/, '')
   const a = address.trim()
-  if (!b || !/^0x[a-fA-F0-9]{40}$/i.test(a)) return null
+  if (!b || !a) return null
+  if (isStellarExplorerBase(b)) {
+    if (/^G[A-Z0-9]{55}$/i.test(a)) return `${b}/account/${a}`
+    if (/^C[A-Z0-9]{55}$/i.test(a)) return `${b}/contract/${a}`
+    return null
+  }
+  if (!/^0x[a-fA-F0-9]{40}$/i.test(a)) return null
   return `${b}/address/${a}`
 }
 
@@ -141,12 +166,43 @@ function normalizeEthereumTxHash(raw: string): string | null {
   return null
 }
 
+/** 32-byte hex tx id for explorers (Stellar: no `0x`; EVM: with `0x`). */
+function normalizeTxHashForExplorer(raw: string, stellar: boolean): string | null {
+  const t = raw.trim()
+  const hex = t.toLowerCase().startsWith('0x') ? t.slice(2) : t
+  if (!/^[a-fA-F0-9]{64}$/i.test(hex)) return null
+  return stellar ? hex.toLowerCase() : `0x${hex}`
+}
+
 /** Block-explorer-style `/tx/{hash}` (32-byte hash, with or without `0x`). */
 export function blockExplorerTxUrl(base: string, txHash: string): string | null {
   const b = base.trim().replace(/\/+$/, '')
-  const h = normalizeEthereumTxHash(txHash)
-  if (!b || !h) return null
+  if (!b) return null
+  const stellar = isStellarExplorerBase(b)
+  const h = normalizeTxHashForExplorer(txHash, stellar)
+  if (!h) return null
   return `${b}/tx/${h}`
+}
+
+/** True when ``address`` can be linked on the given explorer origin. */
+export function isExplorerLinkableAddress(base: string | null | undefined, address: string): boolean {
+  const a = address.trim()
+  if (!a) return false
+  if (base && isStellarExplorerBase(base)) {
+    return /^[GC][A-Z0-9]{55}$/i.test(a)
+  }
+  return /^0x[a-fA-F0-9]{40}$/i.test(a)
+}
+
+/** CTA copy for the pool contract explorer link. */
+export function blockExplorerLinkLabel(base: string | null | undefined, chainId?: number | null): string {
+  if ((base && isStellarExplorerBase(base)) || isStellarChainId(chainId)) {
+    return 'View on StellarExpert'
+  }
+  if (base?.toLowerCase().includes('arbiscan') || base?.toLowerCase().includes('arcscan')) {
+    return 'View on explorer'
+  }
+  return 'View on explorer'
 }
 
 function asRecord(v: unknown): Record<string, unknown> | null {
@@ -533,23 +589,27 @@ export async function postMerchantRepaymentSubmit(
   accessToken: string | null | undefined,
   receivableId: string,
   amountWei: bigint,
-  options?: { signal?: AbortSignal },
+  options?: { signal?: AbortSignal; txHash?: string },
 ): Promise<AdminWriteOutcome> {
   const id = receivableId.trim()
   if (!id) throw new Error('Missing receivable id.')
   if (amountWei <= 0n) throw new Error('Repayment amount must be greater than zero.')
 
   const base = requireApiBaseUrl()
+  const body: Record<string, string> = {
+    receivable_id: id,
+    amount_wei: amountWei.toString(),
+  }
+  const txHash = options?.txHash?.trim()
+  if (txHash) body.tx_hash = txHash
+
   const res = await fetchWithAuthRecovery(`${base}${MERCHANT_REPAYMENT_SUBMIT_PATH}`, {
     method: 'POST',
     headers: {
       ...authHeaders(accessToken),
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      receivable_id: id,
-      amount_wei: amountWei.toString(),
-    }),
+    body: JSON.stringify(body),
     signal: options?.signal,
   })
   return parseAdminWriteResponse(res)

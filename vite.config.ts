@@ -52,12 +52,31 @@ export default defineConfig(() => {
   },
   /** Recharts imports `react-is`; ensure it’s pre-bundled so dev server resolves it. */
   optimizeDeps: {
-    include: ['react-is', 'recharts'],
+    include: ['react-is', 'recharts', 'buffer', '@stellar/stellar-sdk'],
+    // Keep the kit out of multi-entry prebundling so Preact signals state is not duplicated
+    // (duplicate state leaves the auth modal stuck on "Loading wallets...").
+    exclude: [
+      '@creit.tech/stellar-wallets-kit',
+      '@creit.tech/stellar-wallets-kit/modules/albedo',
+      '@creit.tech/stellar-wallets-kit/modules/varial',
+      '@creit.tech/stellar-wallets-kit/modules/utils',
+      '@creit.tech/stellar-wallets-kit/sdk',
+    ],
+  },
+  define: {
+    global: 'globalThis',
   },
   resolve: {
-    alias: {
-      '@': path.resolve(__dirname, './src'),
-    },
+    alias: [
+      { find: '@', replacement: path.resolve(__dirname, './src') },
+      { find: 'buffer', replacement: path.resolve(__dirname, './node_modules/buffer/') },
+      // Exact match only — Freighter's UMD bundle breaks Vite named ESM imports (`getAddress`).
+      {
+        find: /^@stellar\/freighter-api$/,
+        replacement: path.resolve(__dirname, './src/shims/freighter-api.ts'),
+      },
+    ],
+    dedupe: ['preact', '@preact/signals', '@creit.tech/stellar-wallets-kit'],
   },
   }
 })

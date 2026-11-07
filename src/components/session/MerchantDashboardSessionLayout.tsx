@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import DashboardSessionGuard from '@/components/session/DashboardSessionGuard'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
+import { useDashboardPeriodicRefresh } from '@/hooks/useDashboardPeriodicRefresh'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
   selectMerchantDashboardError,

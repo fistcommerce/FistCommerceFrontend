@@ -108,6 +108,22 @@ export type MultisigSignerMgmtSync = {
   backendKeyAlignment: BackendKeyAlignment
 }
 
+export type MultisigCapabilities = {
+  submitProposal?: boolean
+  confirm?: boolean
+  executeMarkOnly?: boolean
+  executeCrossContract?: boolean
+  getProposal?: boolean
+  readThreshold?: boolean
+  readIsOwner?: boolean
+  addRemoveSigners?: boolean
+  setThreshold?: boolean
+  userOpNonce?: boolean
+  erc4337?: boolean
+  roleHandoffToMultisig?: boolean
+  adminOpsDirect?: boolean
+}
+
 export type MultisigConfig = {
   chainId: number
   multisigAddress: string
@@ -118,6 +134,15 @@ export type MultisigConfig = {
   servicerAddress?: string
   liveUserOpNonce?: number
   openProposalCount?: number
+  executionMode?: string
+  network?: string
+  networkPassphrase?: string
+  vm?: string
+  message?: string
+  thresholdSource?: string
+  capabilities?: MultisigCapabilities
+  onChainMethods?: string[]
+  contracts?: Record<string, string>
 }
 
 export type MultisigProposalCall = {
@@ -195,11 +220,11 @@ export type SigningPayloadTypedData = {
 
 export type SigningPayload = {
   proposalId: string
-  digestToSign: `0x${string}`
+  digestToSign: string
   /** EntryPoint userOpHash — signed via typedData, not raw eth_sign. */
   userOpHashToSign?: `0x${string}`
-  /** EIP-712 UserOpApproval payload for walletClient.signTypedData. */
-  typedData: SigningPayloadTypedData
+  /** EIP-712 UserOpApproval payload for walletClient.signTypedData. Absent on Soroban. */
+  typedData?: SigningPayloadTypedData | null
   chainId: number
   nonce: number
   multisigAddress: string
@@ -208,6 +233,11 @@ export type SigningPayload = {
   signingNote: string
   calls: MultisigProposalCall[]
   nonceWarning?: NonceWarning
+  /** Soroban FistMultisig path (no EIP-712 / UserOp). */
+  vm?: string
+  networkPassphrase?: string
+  onChainProposalId?: number | string | null
+  actionHash?: string
 }
 
 export type ExecuteProposalResult = {

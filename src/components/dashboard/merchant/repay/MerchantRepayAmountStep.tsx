@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 
 import arbitrumLogo from '@/assets/arbitrum_icon.jpeg.png'
 import { formatInvestAmountUsd } from '@/components/dashboard/investor/invest/config'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
+import { STELLAR_TESTNET_LABEL } from '@/stellar/chain'
 import {
   clampMerchantRepayAmount,
   validateMerchantRepayAmount,
@@ -30,6 +32,7 @@ const MerchantRepayAmountStep = ({
   onAmountSelect,
   onContinue,
 }: MerchantRepayAmountStepProps) => {
+  const stellarMode = useIsStellarTestnetMode()
   const [draft, setDraft] = useState(() => (amount > 0 ? String(amount) : ''))
 
   useEffect(() => {
@@ -126,7 +129,13 @@ const MerchantRepayAmountStep = ({
           <div className="h-[46px] rounded-[6px] border border-[#D9DEE8] bg-white px-4 flex items-center gap-3">
             <span className="text-[#0B1220] text-[19px] font-semibold">{destinationWallet}</span>
             <span className="h-5 w-px bg-[#E6E8EC]" />
-            <img src={arbitrumLogo} alt="Arbitrum logo" className="h-5 w-5 rounded-[4px] object-cover" />
+            {stellarMode ? (
+              <span className="text-[#4D5D80] text-[12px] font-medium whitespace-nowrap">
+                {STELLAR_TESTNET_LABEL}
+              </span>
+            ) : (
+              <img src={arbitrumLogo} alt="Arbitrum logo" className="h-5 w-5 rounded-[4px] object-cover" />
+            )}
           </div>
         </div>
       </div>

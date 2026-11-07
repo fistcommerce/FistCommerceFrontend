@@ -7,9 +7,14 @@ import type { AppErrorCode } from '@/errors/codes'
 import {
   fetchMultisigExecutionPayload,
   postMultisigProposalConfirmExecute,
+  postMultisigProposalExecute,
 } from '@/api/multisig/proposals'
+import { isStellarChainId } from '@/stellar/chain'
 import type { ExecuteProposalResult } from '@/api/types/multisig'
-import { isGovernanceSignerAddress } from '@/admin/governance/governanceSigner'
+import {
+  isGovernanceSignerAddress,
+  resolveGovernanceActorAddress,
+} from '@/admin/governance/governanceSigner'
 import { userOpSuccessFromHandleOpsReceipt } from '@/admin/governance/userOpReceipt'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import {
@@ -173,23 +178,6 @@ export function useGovernanceExecuteProposal(options: UseGovernanceExecutePropos
         setError('Sign in to execute proposals.')
         return null
       }
-      if (!isConnected || !wallet || !address) {
-        setError('Connect an on-chain multisig owner wallet to execute.')
-        return null
-      }
-      if (!isGovernanceSignerAddress(address, configSigners)) {
-        setError('Connected wallet is not an on-chain multisig owner.')
-        return null
-      }
-      if (
-        sessionWallet?.trim() &&
-        sessionWallet.toLowerCase() !== address.toLowerCase()
-      ) {
-        setError(
-          'Connected wallet must match the wallet used for this admin login session.',
-        )
-        return null
-      }
 
       setPending(true)
       setError(null)
@@ -198,6 +186,41 @@ export function useGovernanceExecuteProposal(options: UseGovernanceExecutePropos
       setLastResult(null)
       dispatch(clearAdminMultisigActionError())
       try {
+        // Peek payload early so Soroban can execute via backend without Privy.
+        const earlyPayload = await fetchExecutionPayloadWithRetry(accessToken, id)
+        const isSoroban =
+          earlyPayload.vm === 'soroban' ||
+          isStellarChainId(earlyPayload.chainId) ||
+          !earlyPayload.userOp
+
+        const actor = resolveGovernanceActorAddress({
+          connectedAddress: address,
+          sessionWallet,
+          allowSessionWalletFallback: isSoroban,
+        })
+        if (!actor) {
+          throw new Error(
+            isSoroban
+              ? 'Sign in with the Stellar admin (owner) wallet to execute this proposal.'
+              : 'Connect an on-chain multisig owner wallet to execute.',
+          )
+        }
+        if (!isGovernanceSignerAddress(actor, configSigners)) {
+          throw new Error('Connected wallet is not an on-chain multisig owner.')
+        }
+        if (
+          !isSoroban &&
+          sessionWallet?.trim() &&
+          sessionWallet.toLowerCase() !== actor.toLowerCase()
+        ) {
+          throw new Error(
+            'Connected wallet must match the wallet used for this admin login session.',
+          )
+        }
+        if (!isSoroban && (!isConnected || !wallet || !address)) {
+          throw new Error('Connect an on-chain multisig owner wallet to execute.')
+        }
+
         // If a prior handleOps already mined for this proposal, only confirm — never re-broadcast.
         const pendingExecute = getMultisigPendingExecute(id)
         setPendingConfirmActive(Boolean(pendingExecute?.txHash))
@@ -297,6 +320,14 @@ export function useGovernanceExecuteProposal(options: UseGovernanceExecutePropos
           }
         }
 
+        if (payload.vm === 'soroban' || isStellarChainId(payload.chainId) || !payload.userOp) {
+          const result = await postMultisigProposalExecute(accessToken, id)
+          return finishSuccess(id, result)
+        }
+
+        if (!wallet || !address) {
+          throw new Error('Connect an on-chain multisig owner wallet to execute.')
+        }
         if (payload.chainId > 0) {
           await ensureWalletChain(wallet, payload.chainId)
         }

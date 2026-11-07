@@ -60,4 +60,44 @@ expectCode(
   assert(/Restart signatures/i.test(multi), 'multisig stale nonce should mention Restart signatures')
 }
 
+const hostInvestorNotApproved = `HostError: Error(Contract, #4)
+
+Event log (newest first):
+   0: [Diagnostic Event] contract:CABUICVVHPHD5BF5J3ID3BH4OJMTEKPQQKOPHRKQYRKER3MAFDS4T43V, topics:[error, Error(Contract, #4)], data:"escalating Ok(ScErrorType::Contract) frame-exit to Err"
+   1: [Diagnostic Event] topics:[fn_call, CABUICVVHPHD5BF5J3ID3BH4OJMTEKPQQKOPHRKQYRKER3MAFDS4T43V, deposit], data:[GAANM3ZQHDGX4NNAGQWGBSZF7JWRVLF7C4HZJXB2JC63WEOKA4NGLAVS, 25000000000, Bytes(c39be47f95ab5650bf99b3958d6089297ec2122296de3b19095ffdf5c3ae4cb4)]
+`
+
+expectCode(hostInvestorNotApproved, 'invest', 'STELLAR_INVESTOR_NOT_APPROVED')
+{
+  const got = classifyAppError(hostInvestorNotApproved, 'invest')
+  assert(
+    /not approved to invest/i.test(got.message),
+    `invest #4 message should mention allowlist, got ${got.message}`,
+  )
+}
+
+expectCode(
+  'HostError: Error(Contract, #13)\nfn_call, CABUICVVHPHD5BF5J3ID3BH4OJMTEKPQQKOPHRKQYRKER3MAFDS4T43V, fund_receivable',
+  'invest',
+  'POOL_ILLIQUID',
+)
+
+expectCode(
+  'HostError: Error(Contract, #12)\nfn_call, CABUICVVHPHD5BF5J3ID3BH4OJMTEKPQQKOPHRKQYRKER3MAFDS4T43V, fund_receivable',
+  'general',
+  'STELLAR_ATTESTATION_MISSING',
+)
+
+expectCode(
+  'HostError: Error(Contract, #4)\nfn_call, CDALKH7ZYF2EAWBVUIVLXUNKVXTGWJY5VLVFIVOB2LGPEH6OFGJD4VOM, issue_attestation',
+  'general',
+  'STELLAR_ISSUER_NOT_AUTHORIZED',
+)
+
+expectCode(
+  'HostError: Error(Contract, #14)\nfn_call, CABUICVVHPHD5BF5J3ID3BH4OJMTEKPQQKOPHRKQYRKER3MAFDS4T43V, repay',
+  'repay',
+  'STELLAR_OVER_REPAYMENT',
+)
+
 console.log('classify context checks OK')

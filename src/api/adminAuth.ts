@@ -6,10 +6,15 @@ import type { WalletLoginSignable } from '@/api/walletSession'
 
 /**
  * Admin wallet login per OpenAPI (`POST /auth/admin-login`).
- * Same EIP-712 payload as user login; no `role` field. Body must include `chainId`
- * matching the EIP-712 domain. Backend requires multisig owner on that chain.
+ * EVM: EIP-712 + multisig owner. Stellar Testnet: ed25519 message + STELLAR_ADMIN_ADDRESS /
+ * STELLAR_MULTISIG_OWNERS. Body must include `chainId` matching the signed payload.
  */
 const ADMIN_LOGIN_PATH = '/api/auth/admin-login'
+
+function isStellarAccountAddress(wallet: string): boolean {
+  const raw = wallet.trim().toUpperCase()
+  return raw.startsWith('G') && raw.length === 56
+}
 
 export type AdminLoginResponseBody = {
   successMessage?: string
@@ -31,15 +36,18 @@ export type AdminLoginResult = {
 
 export async function postAdminWalletLogin(params: {
   signedMessage: WalletLoginSignable['signedMessageForApi']
-  signature: Hex
+  signature: Hex | string
   signerAddress: string
   /**
    * Required by API — must match the EIP-712 domain `chainId` used to sign
-   * (and the active `APP_CHAIN.id`).
+   * (and the active `APP_CHAIN.id`), or Stellar Testnet chain id.
    */
   chainId: number
 }): Promise<AdminLoginResult> {
   const base = requireApiBaseUrl()
+  const signerAddress = isStellarAccountAddress(params.signerAddress)
+    ? params.signerAddress.trim().toUpperCase()
+    : getAddress(params.signerAddress as Address)
   const res = await fetch(`${base}${ADMIN_LOGIN_PATH}`, {
     method: 'POST',
     headers: {
@@ -49,7 +57,7 @@ export async function postAdminWalletLogin(params: {
     body: JSON.stringify({
       signedMessage: params.signedMessage,
       signature: params.signature,
-      signerAddress: getAddress(params.signerAddress as Address),
+      signerAddress,
       chainId: params.chainId,
     }),
   })

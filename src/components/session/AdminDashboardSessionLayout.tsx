@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
 
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
+import { useDashboardPeriodicRefresh } from '@/hooks/useDashboardPeriodicRefresh'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { refreshAdminDashboard } from '@/store/slices/adminDashboardSlice'
 
@@ -30,6 +31,19 @@ export default function AdminDashboardSessionLayout() {
     didKickoffRef.current = true
     void dispatch(refreshAdminDashboard())
   }, [dispatch, status, accessToken, sessionKind])
+
+  const pollEnabled =
+    Boolean(accessToken?.trim()) && sessionKind === 'admin' && !sessionExpired
+
+  const refreshInBackground = useCallback(() => {
+    void dispatch(refreshAdminDashboard({ background: true }))
+  }, [dispatch])
+
+  useDashboardPeriodicRefresh({
+    enabled: pollEnabled,
+    onRefresh: refreshInBackground,
+    isBusy: () => status === 'loading',
+  })
 
   useEffect(() => {
     if (status === 'failed') setErrorDismissed(false)

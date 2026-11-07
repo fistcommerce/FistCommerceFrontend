@@ -19,7 +19,7 @@ import {
   tokenAmountsEqual,
 } from '@/api/adminProtocolSettings'
 import {
-  DEFAULT_PAYOUT_ROUTER,
+  buildDefaultPayoutRouter,
   type PayoutRouterSettingsState,
 } from '@/components/admin/settings/protocolSettingsDefaults'
 import {
@@ -28,24 +28,28 @@ import {
   SettingsSectionActions,
   shortAddress,
 } from '@/components/admin/settings/SettingsPanel'
+import { useIsStellarMode } from '@/hooks/useNetworkCapability'
 import { isAbortError } from '@/utils/abortError'
 import { useAppSelector } from '@/store/hooks'
 
 function toPayoutRouterDraft(
   api: Awaited<ReturnType<typeof fetchProtocolSettingsState>>,
+  isStellar: boolean,
 ): PayoutRouterSettingsState {
+  const defaults = buildDefaultPayoutRouter(isStellar)
   return {
-    fundingPool: api.payoutRouter.fundingPool || DEFAULT_PAYOUT_ROUTER.fundingPool,
-    allocator: api.payoutRouter.allocator || DEFAULT_PAYOUT_ROUTER.allocator,
-    acceptedToken: api.payoutRouter.acceptedToken || DEFAULT_PAYOUT_ROUTER.acceptedToken,
-    minRepayment: api.payoutRouter.minRepayment || DEFAULT_PAYOUT_ROUTER.minRepayment,
+    fundingPool: api.payoutRouter.fundingPool || defaults.fundingPool,
+    allocator: api.payoutRouter.allocator || defaults.allocator,
+    acceptedToken: api.payoutRouter.acceptedToken || defaults.acceptedToken,
+    minRepayment: api.payoutRouter.minRepayment || defaults.minRepayment,
   }
 }
 
 const PayoutRouterPanel = () => {
+  const isStellar = useIsStellarMode()
   const accessToken = useAppSelector((s) => s.auth.accessToken)
-  const [draft, setDraft] = useState<PayoutRouterSettingsState>(() => ({ ...DEFAULT_PAYOUT_ROUTER }))
-  const baselineRef = useRef<PayoutRouterSettingsState>(DEFAULT_PAYOUT_ROUTER)
+  const [draft, setDraft] = useState<PayoutRouterSettingsState>(() => buildDefaultPayoutRouter(false))
+  const baselineRef = useRef<PayoutRouterSettingsState>(buildDefaultPayoutRouter(false))
   const submitAbortRef = useRef<AbortController | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveNotice, setSaveNotice] = useState<string | null>(null)
@@ -58,12 +62,18 @@ const PayoutRouterPanel = () => {
     baselineRef.current = next
   }, [])
 
+  useEffect(() => {
+    const defaults = buildDefaultPayoutRouter(isStellar)
+    setDraft(defaults)
+    baselineRef.current = defaults
+  }, [isStellar])
+
   const refreshChainState = useCallback(async () => {
     if (!accessToken?.trim()) return
     const state = await fetchProtocolSettingsState(accessToken)
-    syncDraftToChain(toPayoutRouterDraft(state))
+    syncDraftToChain(toPayoutRouterDraft(state, isStellar))
     setLoadError(null)
-  }, [accessToken, syncDraftToChain])
+  }, [accessToken, isStellar, syncDraftToChain])
 
   useEffect(() => {
     if (!accessToken?.trim()) return
@@ -72,7 +82,7 @@ const PayoutRouterPanel = () => {
       try {
         const state = await fetchProtocolSettingsState(accessToken)
         if (cancelled) return
-        syncDraftToChain(toPayoutRouterDraft(state))
+        syncDraftToChain(toPayoutRouterDraft(state, isStellar))
         setLoadError(null)
       } catch (e) {
         if (!cancelled) {
@@ -83,10 +93,14 @@ const PayoutRouterPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [accessToken, syncDraftToChain])
+  }, [accessToken, isStellar, syncDraftToChain])
 
   const handleSave = useCallback(async () => {
     setSaveNotice(null)
+    if (isStellar) {
+      setSaveNotice('PayoutRouter wiring is deploy-time on Stellar Testnet (read-only here).')
+      return
+    }
     if (!accessToken?.trim()) {
       setSaveNotice('Sign in to submit payout router changes.')
       return
@@ -239,7 +253,7 @@ const PayoutRouterPanel = () => {
         submitAbortRef.current = null
       }
     }
-  }, [accessToken, draft])
+  }, [accessToken, draft, isStellar])
 
   const handleDismissSubmitFeedback = useCallback(() => {
     submitAbortRef.current?.abort()
@@ -291,14 +305,21 @@ const PayoutRouterPanel = () => {
 
       <SettingsPanel
         title="Payout Router Wiring"
-        description="Cross-contract addresses for disbursements. Apply creates multisig proposals; on-chain state updates after execute."
+        description={
+          isStellar
+            ? 'Soroban PayoutRouter addresses from protocol.json. Track A repayments go through TradeCreditPool; wiring is deploy-time.'
+            : 'Cross-contract addresses for disbursements. Apply creates multisig proposals; on-chain state updates after execute.'
+        }
+        badge={isStellar ? { label: 'Read-only', variant: 'neutral' } : undefined}
         actions={
-          <SettingsSectionActions
-            onCancel={handleCancelDraft}
-            onSave={() => void handleSave()}
-            saving={submitPhase === 'loading'}
-            saveLabel="Apply"
-          />
+          isStellar ? undefined : (
+            <SettingsSectionActions
+              onCancel={handleCancelDraft}
+              onSave={() => void handleSave()}
+              saving={submitPhase === 'loading'}
+              saveLabel="Apply"
+            />
+          )
         }
       >
         {loadError ? (
@@ -311,36 +332,41 @@ const PayoutRouterPanel = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <SettingsField
             id="fundingPool"
-            label="Funding pool"
+            label={isStellar ? 'Trade credit pool' : 'Funding pool'}
             value={draft.fundingPool}
             mono
-            hint={`setFundingPool · ${shortAddress(draft.fundingPool)}`}
-            onChange={(v) => setField('fundingPool', v)}
+            readOnly={isStellar}
+            hint={`${isStellar ? 'TradeCreditPool' : 'setFundingPool'} · ${shortAddress(draft.fundingPool)}`}
+            onChange={isStellar ? undefined : (v) => setField('fundingPool', v)}
           />
           <SettingsField
             id="allocator"
-            label="Allocator"
+            label={isStellar ? 'Receivable allocator' : 'Allocator'}
             value={draft.allocator}
             mono
-            hint={`setAllocator · ${shortAddress(draft.allocator)}`}
-            onChange={(v) => setField('allocator', v)}
+            readOnly={isStellar}
+            hint={`${isStellar ? 'ReceivableAllocator' : 'setAllocator'} · ${shortAddress(draft.allocator)}`}
+            onChange={isStellar ? undefined : (v) => setField('allocator', v)}
           />
           <SettingsField
             id="acceptedToken"
-            label="Accepted token"
+            label={isStellar ? 'Accepted token (FISTUSD SAC)' : 'Accepted token'}
             value={draft.acceptedToken}
             mono
+            readOnly={isStellar}
             hint="Must match pool accepted token."
-            onChange={(v) => setField('acceptedToken', v)}
+            onChange={isStellar ? undefined : (v) => setField('acceptedToken', v)}
           />
-          <SettingsField
-            id="minRepayment"
-            label="Min repayment"
-            value={draft.minRepayment}
-            suffix="tokens"
-            hint="Maps to setMinRepayment."
-            onChange={(v) => setField('minRepayment', v)}
-          />
+          {!isStellar ? (
+            <SettingsField
+              id="minRepayment"
+              label="Min repayment"
+              value={draft.minRepayment}
+              suffix="tokens"
+              hint="Maps to setMinRepayment."
+              onChange={(v) => setField('minRepayment', v)}
+            />
+          ) : null}
         </div>
       </SettingsPanel>
     </>

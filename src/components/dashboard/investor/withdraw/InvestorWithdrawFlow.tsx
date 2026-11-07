@@ -16,7 +16,11 @@ import { WithdrawalStep } from '@/components/dashboard/investor/withdraw/types'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
+import { useWallet } from '@/hooks/useWallet'
+import { STELLAR_TESTNET_LABEL } from '@/stellar/chain'
+import { redeemFromTradeCreditPool } from '@/stellar/poolWrites'
 import { useAppSelector } from '@/store/hooks'
 import { selectInvestorPoolAndMetrics } from '@/store/selectors/investorDashboardSelectors'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
@@ -55,8 +59,15 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
   const walletAddress = useAppSelector((s) => s.wallet.address)
 
   const poolName = lendingPool.poolTitle?.trim() || 'Lending pool'
-  const { investmentBalanceDisplay, walletBalanceDisplay, investmentBalanceHuman } = useInvestorOnChainBalances()
+  const {
+    investmentBalanceDisplay,
+    walletBalanceDisplay,
+    investmentBalanceHuman,
+    stellar,
+  } = useInvestorOnChainBalances()
   const displayAmount = amount
+  const stellarMode = useIsStellarTestnetMode()
+  const { address: stellarAddress } = useWallet()
 
   const withdrawQuickAmounts = useMemo(
     () => filterQuickAmountsByMax(WITHDRAW_QUICK_AMOUNTS, investmentBalanceHuman),
@@ -69,8 +80,9 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
 
   const contracts = useTestnetContracts({
     estimateWithdrawHumanAmount:
-      withdrawalStep === WithdrawalStep.MethodConfirmation ||
-      withdrawalStep === WithdrawalStep.FinalConfirmation
+      !stellarMode &&
+      (withdrawalStep === WithdrawalStep.MethodConfirmation ||
+        withdrawalStep === WithdrawalStep.FinalConfirmation)
         ? displayAmount
         : undefined,
   })
@@ -96,6 +108,13 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
   }
 
   const withdrawOnChainHint = useMemo(() => {
+    if (stellarMode) {
+      if (!stellarAddress) return 'Connect your Stellar wallet to withdraw from the pool.'
+      if (stellar?.loading) return 'Reading your TradeCreditPool position…'
+      if (investmentBalanceHuman == null) return 'Could not read pool position.'
+      if (investmentBalanceHuman <= 0) return 'No pool units yet — invest first.'
+      return null
+    }
     const networkName = getAppChainDisplayName(contracts.testnetChain.id)
     if (!contracts.isConnected) return `Connect your wallet on ${networkName} to withdraw from the pool.`
     if (!contracts.isCorrectNetwork) {
@@ -106,6 +125,10 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
     if (contracts.poolPositionHuman <= 0) return 'No on-chain pool position yet — invest in the pool first.'
     return null
   }, [
+    stellarMode,
+    stellarAddress,
+    stellar?.loading,
+    investmentBalanceHuman,
     contracts.isConnected,
     contracts.isCorrectNetwork,
     contracts.poolPositionHuman,
@@ -119,10 +142,12 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
       openFlowFailure(uiError, WithdrawalStep.AmountEntry, false)
       return
     }
-    const gate = contracts.canWithdrawHuman(displayAmount)
-    if (!gate.ok) {
-      openFlowFailure(gate.message ?? 'Cannot continue', WithdrawalStep.AmountEntry, false)
-      return
+    if (!stellarMode) {
+      const gate = contracts.canWithdrawHuman(displayAmount)
+      if (!gate.ok) {
+        openFlowFailure(gate.message ?? 'Cannot continue', WithdrawalStep.AmountEntry, false)
+        return
+      }
     }
     setWithdrawalStep(WithdrawalStep.MethodConfirmation)
   }
@@ -136,7 +161,16 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
     setFeedbackPhase('loading')
     setFeedbackError(null)
     try {
-      await contracts.requestFundingPoolWithdraw(displayAmount)
+      if (stellarMode) {
+        if (!stellarAddress) throw new Error('Connect your Stellar wallet to withdraw.')
+        await redeemFromTradeCreditPool({
+          investor: stellarAddress,
+          amountHuman: displayAmount,
+        })
+        stellar?.refresh?.()
+      } else {
+        await contracts.requestFundingPoolWithdraw(displayAmount)
+      }
       setFeedbackPhase('idle')
       setWithdrawalStep(WithdrawalStep.WithdrawalCompleted)
     } catch (e) {
@@ -166,9 +200,11 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
               investorMetrics,
               investmentBalanceDisplay,
               {
-                gasFeeEstimateDisplay: contracts.withdrawGasFeeLabel,
-                networkDisplayName: getAppChainDisplayName(contracts.testnetChain.id),
-                chainId: contracts.testnetChain.id,
+                gasFeeEstimateDisplay: stellarMode ? 'Soroban fees' : contracts.withdrawGasFeeLabel,
+                networkDisplayName: stellarMode
+                  ? STELLAR_TESTNET_LABEL
+                  : getAppChainDisplayName(contracts.testnetChain.id),
+                chainId: stellarMode ? 1_397_037_394 : contracts.testnetChain.id,
               },
             )}
             onContinue={() => setWithdrawalStep(WithdrawalStep.FinalConfirmation)}
@@ -181,7 +217,7 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
             amountDisplay={amountDisplay}
             destinationWallet={destinationWallet}
             processingTime={WITHDRAWAL_PROCESSING_TIME}
-            estimatedNetworkFeeLabel={contracts.withdrawGasFeeLabel}
+            estimatedNetworkFeeLabel={stellarMode ? 'Soroban fees' : contracts.withdrawGasFeeLabel}
             isSubmitting={withdrawSubmitting || contracts.isWritePending}
             onConfirm={handleWithdrawConfirm}
           />
@@ -194,7 +230,9 @@ const InvestorWithdrawFlow = ({ walletDisplay, step, onStepChange }: InvestorWit
             poolName={poolName}
             metrics={buildWithdrawalCompletedMetrics(displayAmount)}
             backToDashboardTo="/dashboard/investor/overview"
-            networkDisplayName={getAppChainDisplayName(contracts.testnetChain.id)}
+            networkDisplayName={
+              stellarMode ? STELLAR_TESTNET_LABEL : getAppChainDisplayName(contracts.testnetChain.id)
+            }
           />
         )
 

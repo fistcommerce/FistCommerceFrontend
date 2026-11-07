@@ -104,3 +104,23 @@ export function sessionWalletMatchesConnected(
   if (!connectedAddress?.trim()) return false
   return sessionWallet.trim().toLowerCase() === connectedAddress.trim().toLowerCase()
 }
+
+/**
+ * Effective governance identity.
+ * Stellar/Soroban admin login is Freighter (session wallet); Privy may be disconnected.
+ * Prefer the connected wallet when present, otherwise fall back to the session wallet.
+ */
+export function resolveGovernanceActorAddress(params: {
+  connectedAddress: string | null | undefined
+  sessionWallet: string | null | undefined
+  /** When true (Soroban / Stellar Testnet), allow session-wallet-only signing. */
+  allowSessionWalletFallback?: boolean
+}): string | null {
+  const connected = params.connectedAddress?.trim() || null
+  if (connected) return connected
+  if (params.allowSessionWalletFallback) {
+    const session = params.sessionWallet?.trim() || null
+    if (session) return session
+  }
+  return null
+}

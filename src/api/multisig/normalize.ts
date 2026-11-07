@@ -190,6 +190,17 @@ export function normalizeMultisigConfig(raw: unknown): MultisigConfig {
       if (typeof s === 'string' && s.trim()) signers.push(s.trim())
     }
   }
+  const capsRaw = asRecord(r.capabilities)
+  const contractsRaw = asRecord(r.contracts)
+  const contracts: Record<string, string> = {}
+  for (const [k, v] of Object.entries(contractsRaw)) {
+    if (typeof v === 'string' && v.trim()) contracts[k] = v.trim()
+  }
+  const methodsRaw = r.onChainMethods ?? r.on_chain_methods
+  const onChainMethods = Array.isArray(methodsRaw)
+    ? methodsRaw.filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+    : undefined
+
   return {
     chainId: pickNumber(r, 'chainId', 'chain_id'),
     multisigAddress: pickStr(r, 'multisigAddress', 'multisig_address'),
@@ -200,6 +211,34 @@ export function normalizeMultisigConfig(raw: unknown): MultisigConfig {
     servicerAddress: pickStr(r, 'servicerAddress', 'servicer_address') || undefined,
     liveUserOpNonce: pickNullableNumber(r, 'liveUserOpNonce', 'live_user_op_nonce') ?? undefined,
     openProposalCount: pickNullableNumber(r, 'openProposalCount', 'open_proposal_count') ?? undefined,
+    executionMode: pickStr(r, 'executionMode', 'execution_mode') || undefined,
+    network: pickStr(r, 'network') || undefined,
+    networkPassphrase: pickStr(r, 'networkPassphrase', 'network_passphrase') || undefined,
+    vm: pickStr(r, 'vm') || undefined,
+    message: pickStr(r, 'message') || undefined,
+    thresholdSource: pickStr(r, 'thresholdSource', 'threshold_source') || undefined,
+    capabilities:
+      Object.keys(capsRaw).length > 0
+        ? {
+            submitProposal: pickBool(capsRaw, 'submitProposal', 'submit_proposal') || undefined,
+            confirm: pickBool(capsRaw, 'confirm') || undefined,
+            executeMarkOnly: pickBool(capsRaw, 'executeMarkOnly', 'execute_mark_only') || undefined,
+            executeCrossContract:
+              pickBool(capsRaw, 'executeCrossContract', 'execute_cross_contract') || undefined,
+            getProposal: pickBool(capsRaw, 'getProposal', 'get_proposal') || undefined,
+            readThreshold: pickBool(capsRaw, 'readThreshold', 'read_threshold') || undefined,
+            readIsOwner: pickBool(capsRaw, 'readIsOwner', 'read_is_owner') || undefined,
+            addRemoveSigners: pickBool(capsRaw, 'addRemoveSigners', 'add_remove_signers') || undefined,
+            setThreshold: pickBool(capsRaw, 'setThreshold', 'set_threshold') || undefined,
+            userOpNonce: pickBool(capsRaw, 'userOpNonce', 'user_op_nonce') || undefined,
+            erc4337: pickBool(capsRaw, 'erc4337') || undefined,
+            roleHandoffToMultisig:
+              pickBool(capsRaw, 'roleHandoffToMultisig', 'role_handoff_to_multisig') || undefined,
+            adminOpsDirect: pickBool(capsRaw, 'adminOpsDirect', 'admin_ops_direct') || undefined,
+          }
+        : undefined,
+    onChainMethods,
+    contracts: Object.keys(contracts).length > 0 ? contracts : undefined,
   }
 }
 
@@ -331,11 +370,6 @@ export function normalizeSigningPayload(raw: unknown): SigningPayload | null {
     pickStr(r, 'userOpHashToSign', 'user_op_hash_to_sign') ||
     pickStr(r, 'digestToSign', 'digest_to_sign')
   if (!proposalId || !digestRaw) return null
-  const digestToSign = (digestRaw.startsWith('0x') ? digestRaw : `0x${digestRaw}`) as `0x${string}`
-  const userOpRaw = pickStr(r, 'userOpHashToSign', 'user_op_hash_to_sign')
-  const userOpHashToSign = userOpRaw
-    ? ((userOpRaw.startsWith('0x') ? userOpRaw : `0x${userOpRaw}`) as `0x${string}`)
-    : digestToSign
 
   const signers: string[] = []
   if (Array.isArray(r.signers)) {
@@ -355,6 +389,41 @@ export function normalizeSigningPayload(raw: unknown): SigningPayload | null {
 
   const chainId = pickNumber(r, 'chainId', 'chain_id')
   const multisigAddress = pickStr(r, 'multisigAddress', 'multisig_address')
+  const vm = pickStr(r, 'vm')
+  const isSoroban = vm === 'soroban' || pickStr(r, 'networkPassphrase', 'network_passphrase').length > 0
+
+  if (isSoroban) {
+    const onChainRaw = r.onChainProposalId ?? r.on_chain_proposal_id
+    return {
+      proposalId,
+      digestToSign: digestRaw,
+      typedData: null,
+      chainId,
+      nonce: pickNumber(r, 'nonce'),
+      multisigAddress,
+      threshold: pickNumber(r, 'threshold'),
+      signers,
+      signingNote: pickStr(r, 'signingNote', 'signing_note'),
+      calls,
+      nonceWarning: normalizeNonceWarning(r.nonceWarning ?? r.nonce_warning),
+      vm: 'soroban',
+      networkPassphrase: pickStr(r, 'networkPassphrase', 'network_passphrase') || undefined,
+      onChainProposalId:
+        onChainRaw == null || onChainRaw === ''
+          ? null
+          : (typeof onChainRaw === 'number' || typeof onChainRaw === 'string'
+              ? onChainRaw
+              : String(onChainRaw)),
+      actionHash: pickStr(r, 'actionHash', 'action_hash') || undefined,
+    }
+  }
+
+  const digestToSign = (digestRaw.startsWith('0x') ? digestRaw : `0x${digestRaw}`) as `0x${string}`
+  const userOpRaw = pickStr(r, 'userOpHashToSign', 'user_op_hash_to_sign')
+  const userOpHashToSign = userOpRaw
+    ? ((userOpRaw.startsWith('0x') ? userOpRaw : `0x${userOpRaw}`) as `0x${string}`)
+    : digestToSign
+
   const typedDataRaw = r.typedData ?? r.typed_data
   if (typedDataRaw == null) {
     throw new Error('Signing payload is missing required EIP-712 typedData from the backend.')
@@ -434,7 +503,7 @@ function normalizeTypedData(raw: unknown): SigningPayload['typedData'] | null {
 }
 
 export function assertSigningTypedDataIntegrity(
-  typedData: SigningPayload['typedData'],
+  typedData: NonNullable<SigningPayload['typedData']>,
   ctx: {
     chainId: number
     multisigAddress: string

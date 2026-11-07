@@ -4,6 +4,7 @@ import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   blockExplorerAddressUrl,
   getDefaultBlockExplorerBase,
+  isExplorerLinkableAddress,
 } from '@/api/payout'
 import DashboardLayout, { type DashboardBreadcrumbItem } from '@/layouts/DashboardLayout'
 import LendingPoolDetailPageContent from '@/components/dashboard/merchant/lending-pool-detail/LendingPoolDetailPageContent'
@@ -68,9 +69,10 @@ const MerchantLoanDetailPage = () => {
   const explorerBase =
     recentTx.explorerBaseUrl?.trim().replace(/\/+$/, '') || getDefaultBlockExplorerBase()
   const contract = recentTx.poolContractAddress?.trim() ?? null
-  const contractOk = Boolean(contract && /^0x[a-fA-F0-9]{40}$/i.test(contract))
   const recentTransactionsExplorerHref =
-    explorerBase && contractOk && contract ? blockExplorerAddressUrl(explorerBase, contract) : null
+    explorerBase && contract && isExplorerLinkableAddress(explorerBase, contract)
+      ? blockExplorerAddressUrl(explorerBase, contract)
+      : null
 
   if (!config) {
     return <Navigate to={dashboardHomePath('merchant', isKycVerified)} replace />

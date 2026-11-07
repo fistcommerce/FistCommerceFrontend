@@ -50,6 +50,12 @@ const MultisigSignersPanel = () => {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const { config, configStatus, proposals } = useAppSelector((s) => s.adminMultisig)
   const { address: connectedAddress } = useActiveWallet()
+  const isStellar =
+    config?.vm === 'soroban' ||
+    config?.executionMode === 'stellar_direct' ||
+    config?.executionMode === 'stellar_multisig' ||
+    (config?.multisigAddress || '').startsWith('C')
+  const stellarReadOnly = isStellar && !(config?.capabilities?.addRemoveSigners)
 
   const [addAddressInput, setAddAddressInput] = useState('')
   const [addAddresses, setAddAddresses] = useState<string[]>([])
@@ -380,24 +386,32 @@ const MultisigSignersPanel = () => {
       />
 
       <SettingsPanel
-        title="Multisig owners"
-        description="View on-chain owners and threshold. Apply creates a governance proposal; changes take effect only after owners sign and the proposal is executed."
+        title={isStellar ? 'FistMultisig owners' : 'Multisig owners'}
+        description={
+          stellarReadOnly
+            ? `Stellar 1-of-1 governance account${config?.multisigAddress ? ` (${config.multisigAddress})` : ''}. Owner rotation is not enabled yet; ${config?.message || 'admin ops follow executionMode.'}`
+            : 'View on-chain owners and threshold. Apply creates a governance proposal; changes take effect only after owners sign and the proposal is executed.'
+        }
         badge={
           config
             ? {
-                label: `${config.threshold}-of-${config.signerCount || signers.length}`,
+                label: stellarReadOnly
+                  ? `${config.threshold}-of-${config.signerCount || signers.length} · read-only`
+                  : `${config.threshold}-of-${config.signerCount || signers.length}`,
                 variant: 'approved',
               }
             : undefined
         }
         actions={
-          <SettingsSectionActions
-            onCancel={handleCancelDraft}
-            onSave={() => requestSubmit('rotation', submitRotation)}
-            saving={submitPhase === 'loading'}
-            saveLabel="Apply rotation"
-            disabled={!hasRotationChanges || loading}
-          />
+          stellarReadOnly ? undefined : (
+            <SettingsSectionActions
+              onCancel={handleCancelDraft}
+              onSave={() => requestSubmit('rotation', submitRotation)}
+              saving={submitPhase === 'loading'}
+              saveLabel="Apply rotation"
+              disabled={!hasRotationChanges || loading}
+            />
+          )
         }
       >
         {loadError ? (

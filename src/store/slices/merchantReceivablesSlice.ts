@@ -22,9 +22,18 @@ const initialState: MerchantReceivablesState = {
   lastUpdated: null,
 }
 
+export type RefreshMerchantReceivablesArg = {
+  /** Quiet refresh — do not flip status to loading. */
+  background?: boolean
+}
+
+function isBackgroundRefresh(arg: RefreshMerchantReceivablesArg | undefined): boolean {
+  return Boolean(arg?.background)
+}
+
 export const refreshMerchantReceivables = createAsyncThunk(
   'merchantReceivables/refresh',
-  async (_arg, thunkApi) => {
+  async (_arg: RefreshMerchantReceivablesArg | undefined, thunkApi) => {
     const state = thunkApi.getState() as RootState
     const accessToken = state.auth?.accessToken?.trim()
     if (!isUsableApiAccessToken(accessToken)) {

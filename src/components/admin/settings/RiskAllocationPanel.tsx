@@ -32,6 +32,7 @@ import {
   SettingsSectionActions,
 } from '@/components/admin/settings/SettingsPanel'
 import { AdminStatusPill } from '@/components/admin/primitives'
+import { useIsStellarMode } from '@/hooks/useNetworkCapability'
 import { useAppSelector } from '@/store/hooks'
 
 function nextTierId(tiers: ProtocolRiskTier[]): number {
@@ -65,6 +66,7 @@ function findChangedTiers(baseline: ProtocolRiskTier[], next: ProtocolRiskTier[]
 }
 
 const RiskAllocationPanel = () => {
+  const isStellar = useIsStellarMode()
   const accessToken = useAppSelector((s) => s.auth.accessToken)
   const sessionChainId = useAppSelector((s) => s.auth.chainId)
   const [draft, setDraft] = useState<RiskAllocationState>(() => structuredClone(DEFAULT_RISK_ALLOCATION))
@@ -196,6 +198,10 @@ const RiskAllocationPanel = () => {
 
   const handleSave = useCallback(async () => {
     setSaveNotice(null)
+    if (isStellar) {
+      setSaveNotice('Risk tiers are configured in protocol.json on Stellar Testnet (read-only here).')
+      return
+    }
     if (!accessToken?.trim()) {
       setSaveNotice('Sign in to submit risk allocation changes.')
       return
@@ -373,7 +379,7 @@ const RiskAllocationPanel = () => {
         submitAbortRef.current = null
       }
     }
-  }, [accessToken, draft])
+  }, [accessToken, draft, isStellar])
 
   const handleDismissSubmitFeedback = useCallback(() => {
     submitAbortRef.current?.abort()
@@ -458,77 +464,92 @@ const RiskAllocationPanel = () => {
     <>
       <SettingsPanel
         title="Risk & Allocation"
-        description="Risk tiers and merchant concentration limits on AllocationController. Tier interest is a flat percent of principal for the full tenor (not APR). Each changed field creates a multisig governance proposal."
+        description={
+          isStellar
+            ? 'Risk tiers from Stellar protocol.json (Track A). Interest is a flat percent of principal for the tenor. Editable governance setters are EVM-only.'
+            : 'Risk tiers and merchant concentration limits on AllocationController. Tier interest is a flat percent of principal for the full tenor (not APR). Each changed field creates a multisig governance proposal.'
+        }
+        badge={isStellar ? { label: 'Read-only', variant: 'neutral' } : undefined}
         actions={
-          <SettingsSectionActions
-            onCancel={handleCancelDraft}
-            onSave={() => void handleSave()}
-            saving={submitPhase === 'loading'}
-            saveLabel="Apply"
-          />
+          isStellar ? undefined : (
+            <SettingsSectionActions
+              onCancel={handleCancelDraft}
+              onSave={() => void handleSave()}
+              saving={submitPhase === 'loading'}
+              saveLabel="Apply"
+            />
+          )
         }
       >
         {loadError ? <p className="text-[#DC2626] text-[14px]">{loadError}</p> : null}
         {saveNotice ? <p className="text-[#6B7488] text-[14px]">{saveNotice}</p> : null}
-        <SettingsField
-          id="maxMerchantPercent"
-          label="Max merchant concentration"
-          value={draft.maxMerchantPercent}
-          suffix="%"
-          hint={
-            onChainMaxMerchantBps != null
-              ? `On-chain: ${onChainMaxMerchantBps} bps (${bpsToPercent(onChainMaxMerchantBps)}%). Apply creates a max_merchant_bps governance proposal via setMaxMerchantBps.`
-              : 'Maps to setMaxMerchantBps (0–100%). Apply creates a max_merchant_bps governance proposal.'
-          }
-          onChange={(v) => {
-            setDraft((prev) => ({ ...prev, maxMerchantPercent: v }))
-            setSaveNotice(null)
-          }}
-        />
-        <SettingsField
-          id="bankerYearDays"
-          label="Banker year days"
-          value={draft.bankerYearDays}
-          hint="Legacy day-count field on AllocationController. New flat tenor interest does not use banker year days for loan pricing."
-          onChange={(v) => {
-            setDraft((prev) => ({ ...prev, bankerYearDays: v }))
-            setSaveNotice(null)
-          }}
-        />
-        <SettingsField
-          id="maxTenorRatePercent"
-          label="Max tenor rate"
-          value={draft.maxTenorRatePercent}
-          suffix="%"
-          hint="Maps to setMaxTenorRateBps (0–100%)."
-          onChange={(v) => {
-            setDraft((prev) => ({ ...prev, maxTenorRatePercent: v }))
-            setSaveNotice(null)
-          }}
-        />
+        {!isStellar ? (
+          <>
+            <SettingsField
+              id="maxMerchantPercent"
+              label="Max merchant concentration"
+              value={draft.maxMerchantPercent}
+              suffix="%"
+              hint={
+                onChainMaxMerchantBps != null
+                  ? `On-chain: ${onChainMaxMerchantBps} bps (${bpsToPercent(onChainMaxMerchantBps)}%). Apply creates a max_merchant_bps governance proposal via setMaxMerchantBps.`
+                  : 'Maps to setMaxMerchantBps (0–100%). Apply creates a max_merchant_bps governance proposal.'
+              }
+              onChange={(v) => {
+                setDraft((prev) => ({ ...prev, maxMerchantPercent: v }))
+                setSaveNotice(null)
+              }}
+            />
+            <SettingsField
+              id="bankerYearDays"
+              label="Banker year days"
+              value={draft.bankerYearDays}
+              hint="Legacy day-count field on AllocationController. New flat tenor interest does not use banker year days for loan pricing."
+              onChange={(v) => {
+                setDraft((prev) => ({ ...prev, bankerYearDays: v }))
+                setSaveNotice(null)
+              }}
+            />
+            <SettingsField
+              id="maxTenorRatePercent"
+              label="Max tenor rate"
+              value={draft.maxTenorRatePercent}
+              suffix="%"
+              hint="Maps to setMaxTenorRateBps (0–100%)."
+              onChange={(v) => {
+                setDraft((prev) => ({ ...prev, maxTenorRatePercent: v }))
+                setSaveNotice(null)
+              }}
+            />
+          </>
+        ) : null}
 
         <div>
           <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
             <h3 className="text-[#0B1220] text-[15px] font-semibold">Risk tiers</h3>
-            <button
-              type="button"
-              onClick={addTier}
-              className="h-9 px-4 rounded-[6px] border border-[#195EBC] text-[#195EBC] text-[13px] font-semibold hover:bg-[#E8EFFB] transition-colors"
-            >
-              Add risk tier
-            </button>
+            {!isStellar ? (
+              <button
+                type="button"
+                onClick={addTier}
+                className="h-9 px-4 rounded-[6px] border border-[#195EBC] text-[#195EBC] text-[13px] font-semibold hover:bg-[#E8EFFB] transition-colors"
+              >
+                Add risk tier
+              </button>
+            ) : null}
           </div>
 
           {draft.tiers.length === 0 ? (
             <div className="rounded-[8px] border border-dashed border-[#D1D5DB] bg-[#FAFBFC] px-5 py-10 text-center">
               <p className="text-[#6B7488] text-[14px]">No risk tiers configured.</p>
-              <button
-                type="button"
-                onClick={addTier}
-                className="mt-3 text-[#195EBC] text-[14px] font-semibold hover:underline"
-              >
-                Add your first tier
-              </button>
+              {!isStellar ? (
+                <button
+                  type="button"
+                  onClick={addTier}
+                  className="mt-3 text-[#195EBC] text-[14px] font-semibold hover:underline"
+                >
+                  Add your first tier
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="overflow-x-auto rounded-[8px] border border-[#E6E8EC]">
@@ -539,8 +560,12 @@ const RiskAllocationPanel = () => {
                     <th className="px-4 py-3">Tenor rate (%)</th>
                     <th className="px-4 py-3">Max tenor (days)</th>
                     <th className="px-4 py-3">Status</th>
-                    <th className="px-4 py-3">Active</th>
-                    <th className="px-4 py-3">Actions</th>
+                    {!isStellar ? (
+                      <>
+                        <th className="px-4 py-3">Active</th>
+                        <th className="px-4 py-3">Actions</th>
+                      </>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -548,48 +573,60 @@ const RiskAllocationPanel = () => {
                     <tr key={tier.id} className="border-t border-[#EEF0F4]">
                       <td className="px-4 py-3 font-mono font-medium text-[#0B1220]">{tier.id}</td>
                       <td className="px-4 py-3">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={tier.interestPercent}
-                          onChange={(e) => updateTier(tier.id, { interestPercent: e.target.value })}
-                          className="h-9 w-24 rounded-[6px] bg-[#F0F2F5] px-2 text-[14px] outline-none focus:ring-2 focus:ring-[#195EBC]/25"
-                          aria-label={`Tier ${tier.id} tenor rate`}
-                        />
+                        {isStellar ? (
+                          <span>{tier.interestPercent}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={tier.interestPercent}
+                            onChange={(e) => updateTier(tier.id, { interestPercent: e.target.value })}
+                            className="h-9 w-24 rounded-[6px] bg-[#F0F2F5] px-2 text-[14px] outline-none focus:ring-2 focus:ring-[#195EBC]/25"
+                            aria-label={`Tier ${tier.id} tenor rate`}
+                          />
+                        )}
                       </td>
                       <td className="px-4 py-3">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={tier.maxTenorDays}
-                          onChange={(e) => updateTier(tier.id, { maxTenorDays: e.target.value })}
-                          className="h-9 w-24 rounded-[6px] bg-[#F0F2F5] px-2 text-[14px] outline-none focus:ring-2 focus:ring-[#195EBC]/25"
-                          aria-label={`Tier ${tier.id} max tenor days`}
-                        />
+                        {isStellar ? (
+                          <span>{tier.maxTenorDays}</span>
+                        ) : (
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={tier.maxTenorDays}
+                            onChange={(e) => updateTier(tier.id, { maxTenorDays: e.target.value })}
+                            className="h-9 w-24 rounded-[6px] bg-[#F0F2F5] px-2 text-[14px] outline-none focus:ring-2 focus:ring-[#195EBC]/25"
+                            aria-label={`Tier ${tier.id} max tenor days`}
+                          />
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <AdminStatusPill variant={tier.active ? 'active' : 'neutral'}>
                           {tier.active ? 'Active' : 'Inactive'}
                         </AdminStatusPill>
                       </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => toggleTierActive(tier.id)}
-                          className="text-[#195EBC] text-[13px] font-semibold hover:underline"
-                        >
-                          {tier.active ? 'Deactivate' : 'Activate'}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3">
-                        <button
-                          type="button"
-                          onClick={() => removeTier(tier.id)}
-                          className="text-[#DC2626] text-[13px] font-semibold hover:underline"
-                        >
-                          Delete
-                        </button>
-                      </td>
+                      {!isStellar ? (
+                        <>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => toggleTierActive(tier.id)}
+                              className="text-[#195EBC] text-[13px] font-semibold hover:underline"
+                            >
+                              {tier.active ? 'Deactivate' : 'Activate'}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => removeTier(tier.id)}
+                              className="text-[#DC2626] text-[13px] font-semibold hover:underline"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -598,8 +635,9 @@ const RiskAllocationPanel = () => {
           )}
 
           <p className="mt-2 text-[12px] text-[#9CA3AF]">
-            Only changed fields are submitted. Each change creates a separate governance proposal for multisig
-            signatures.
+            {isStellar
+              ? 'Tiers are defined in utils/config/chains/1397037394/protocol.json for Stellar Testnet.'
+              : 'Only changed fields are submitted. Each change creates a separate governance proposal for multisig signatures.'}
           </p>
         </div>
       </SettingsPanel>

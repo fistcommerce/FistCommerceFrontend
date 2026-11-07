@@ -1,5 +1,24 @@
 /// <reference types="vite/client" />
 
+declare module '@stellar/freighter-api/build/index.min.js' {
+  const freighterApi: Record<string, unknown>
+  export default freighterApi
+  export const freighterApi: Record<string, unknown>
+  export const getAddress: (...args: unknown[]) => Promise<unknown>
+  export const getNetwork: (...args: unknown[]) => Promise<unknown>
+  export const getNetworkDetails: (...args: unknown[]) => Promise<unknown>
+  export const isConnected: (...args: unknown[]) => Promise<unknown>
+  export const isAllowed: (...args: unknown[]) => Promise<unknown>
+  export const requestAccess: (...args: unknown[]) => Promise<unknown>
+  export const setAllowed: (...args: unknown[]) => Promise<unknown>
+  export const signAuthEntry: (...args: unknown[]) => Promise<unknown>
+  export const signMessage: (...args: unknown[]) => Promise<unknown>
+  export const signTransaction: (...args: unknown[]) => Promise<unknown>
+  export const addToken: (...args: unknown[]) => Promise<unknown>
+  export const WatchWalletChanges: unknown
+  export const isBrowser: boolean
+}
+
 interface ImportMetaEnv {
   /** WalletConnect / Reown Cloud project id — enables Ledger & QR-based wallets */
   readonly VITE_WALLETCONNECT_PROJECT_ID?: string
@@ -40,6 +59,8 @@ interface ImportMetaEnv {
   readonly VITE_ARBITRUM_SEPOLIA_POOL_CONTRACT_ADDRESS?: string
   /** Arbitrum One block explorer origin. Default: https://arbiscan.io */
   readonly VITE_ARBITRUM_BLOCK_EXPLORER_URL?: string
+  /** Stellar Testnet explorer origin. Default: https://stellar.expert/explorer/testnet */
+  readonly VITE_STELLAR_TESTNET_BLOCK_EXPLORER_URL?: string
   /** @deprecated Use `VITE_ARBITRUM_SEPOLIA_BLOCK_EXPLORER_URL` */
   readonly VITE_ETH_SEPOLIA_BLOCK_EXPLORER_URL?: string
   /** @deprecated Use `VITE_ARBITRUM_SEPOLIA_POOL_CONTRACT_ADDRESS` */

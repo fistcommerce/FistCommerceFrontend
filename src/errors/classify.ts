@@ -1,6 +1,7 @@
 import { ApiRequestError } from '@/api/apiRequestError'
 import type { AppErrorCode } from '@/errors/codes'
 import { messageForCode } from '@/errors/messages'
+import { classifySorobanErrorText } from '@/stellar/contractErrors'
 import { isUserRejectedWalletRequest, WalletChainSwitchError } from '@/wallet/walletChainErrors'
 
 export type AppErrorContext =

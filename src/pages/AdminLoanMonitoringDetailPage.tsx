@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 
-import { fetchReceivableEvidence, type ReceivableEvidenceBundle } from '@/api/evidence'
-import EvidenceBundlePanel from '@/components/evidence/EvidenceBundlePanel'
 import {
   loanMonitoringPrivilegedActionLabels,
   PrivilegedActionFeedbackLayer,
@@ -10,10 +8,8 @@ import {
 } from '@/admin/governance'
 import {
   ADMIN_LOAN_MONITORING_FUNDING_APPROVAL_FOCUS_VALUE,
-  ADMIN_LOAN_MONITORING_FUNDING_PAYOUT_FOCUS_VALUE,
   ADMIN_LOAN_MONITORING_LIST_PATH,
   ADMIN_LOAN_MONITORING_PAYOUT_FOCUS_QUERY_KEY,
-  ADMIN_LOAN_MONITORING_PAYOUT_FOCUS_VALUE,
   ADMIN_LOAN_MONITORING_RETURN_QUERY_KEY,
   AdminLoanMonitoringDetailView,
   resolveAdminLoanMonitoringBackTarget,
@@ -54,23 +50,6 @@ const AdminLoanMonitoringDetailPage = () => {
     loanId ? selectLoanMonitoringDetail(s.adminLoanMonitoring, loanId) : null,
   )
 
-  const [evidence, setEvidence] = useState<ReceivableEvidenceBundle | null>(null)
-  useEffect(() => {
-    if (!loanId?.trim() || !accessToken?.trim() || sessionKind !== 'admin') return
-    let cancelled = false
-    void fetchReceivableEvidence(accessToken, loanId)
-      .then((data) => {
-        if (!cancelled) setEvidence(data)
-      })
-      .catch(() => {
-        if (!cancelled) setEvidence(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [loanId, accessToken, sessionKind, detail?.loanLifecycleStatus])
-
-
   const backHref = resolveAdminLoanMonitoringBackTarget(
     searchParams.get(ADMIN_LOAN_MONITORING_RETURN_QUERY_KEY),
   )
@@ -88,15 +67,8 @@ const AdminLoanMonitoringDetailPage = () => {
   useEffect(() => {
     if (!detail) return
     const focus = searchParams.get(ADMIN_LOAN_MONITORING_PAYOUT_FOCUS_QUERY_KEY)
-    const targetId =
-      focus === ADMIN_LOAN_MONITORING_FUNDING_APPROVAL_FOCUS_VALUE
-        ? 'loan-funding-approval-section'
-        : focus === ADMIN_LOAN_MONITORING_FUNDING_PAYOUT_FOCUS_VALUE ||
-            focus === ADMIN_LOAN_MONITORING_PAYOUT_FOCUS_VALUE
-          ? 'loan-funding-payout-section'
-          : null
-    if (!targetId) return
-    const el = document.getElementById(targetId)
+    if (focus !== ADMIN_LOAN_MONITORING_FUNDING_APPROVAL_FOCUS_VALUE) return
+    const el = document.getElementById('loan-funding-approval-section')
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [detail, searchParams])
 
@@ -153,20 +125,6 @@ const AdminLoanMonitoringDetailPage = () => {
   const handleApproveFunding = useCallback(() => {
     if (!loanId || !detail?.receivableId || actionLoading) return
     dispatchCancellable(fundAdminLoanMonitoringLoan({ loanId, receivableId: detail.receivableId }))
-  }, [dispatchCancellable, loanId, detail?.receivableId, actionLoading])
-
-  const handleInitiatePayout = useCallback(() => {
-    if (!loanId || !detail?.receivableId || actionLoading) return
-    dispatchCancellable(
-      initiateAdminLoanMonitoringPayout({ loanId, receivableId: detail.receivableId }),
-    )
-  }, [dispatchCancellable, loanId, detail?.receivableId, actionLoading])
-
-  const handleCancelFunding = useCallback(() => {
-    if (!loanId || !detail?.receivableId || actionLoading) return
-    dispatchCancellable(
-      cancelFundingAdminLoanMonitoringLoan({ loanId, receivableId: detail.receivableId }),
-    )
   }, [dispatchCancellable, loanId, detail?.receivableId, actionLoading])
 
   const handleMarkDefaulted = useCallback(() => {
@@ -226,27 +184,17 @@ const AdminLoanMonitoringDetailPage = () => {
       ) : null}
 
       {detail ? (
-        <>
-          {evidence ? (
-            <div className="w-full max-w-[1280px] mx-auto px-4 sm:px-6 pt-4">
-              <EvidenceBundlePanel bundle={evidence} />
-            </div>
-          ) : null}
-          <AdminLoanMonitoringDetailView
-            detail={detail}
-            onBack={handleBack}
-            onApprove={handleApprove}
-            onReject={handleReject}
-            onApproveFunding={handleApproveFunding}
-            onCancelFunding={handleCancelFunding}
-            onInitiatePayout={handleInitiatePayout}
-            onMarkDefaulted={handleMarkDefaulted}
-            onWriteOffShortfall={handleWriteOffShortfall}
-            actionLoading={actionLoading}
-            actionKind={actionKind}
-            payoutReadiness={evidence?.payoutReadiness ?? null}
-          />
-        </>
+        <AdminLoanMonitoringDetailView
+          detail={detail}
+          onBack={handleBack}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onApproveFunding={handleApproveFunding}
+          onMarkDefaulted={handleMarkDefaulted}
+          onWriteOffShortfall={handleWriteOffShortfall}
+          actionLoading={actionLoading}
+          actionKind={actionKind}
+        />
       ) : !detailLoading ? (
         <div className="w-full max-w-[1280px] mx-auto pb-10">
           <button

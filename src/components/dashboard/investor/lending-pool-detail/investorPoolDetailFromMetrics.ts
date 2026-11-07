@@ -1,6 +1,7 @@
 import {
   blockExplorerAddressUrl,
   getDefaultBlockExplorerBase,
+  isExplorerLinkableAddress,
   type RecentPayoutBundle,
 } from '@/api/payout'
 import {
@@ -170,9 +171,10 @@ export function mergeInvestorPoolPayoutIntoConfig(
   }
 
   const explorerBase =
-    payout.explorerBaseUrl?.trim().replace(/\/+$/, '') || getDefaultBlockExplorerBase()
+    payout.explorerBaseUrl?.trim().replace(/\/+$/, '') ||
+    getDefaultBlockExplorerBase(options?.chainId)
   const contract = payout.contractAddress?.trim() ?? null
-  const contractOk = Boolean(contract && /^0x[a-fA-F0-9]{40}$/i.test(contract))
+  const contractOk = Boolean(contract && isExplorerLinkableAddress(explorerBase, contract))
   const contractExplorerHref =
     explorerBase && contractOk && contract ? blockExplorerAddressUrl(explorerBase, contract) : null
 

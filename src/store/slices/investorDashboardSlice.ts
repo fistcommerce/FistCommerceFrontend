@@ -12,11 +12,13 @@ import {
 import { toUserFacingError } from '@/api/client'
 import { deriveKycStatusFromInvestorRecord, fetchInvestorKycRecord } from '@/api/kycInvestor'
 import { fetchRecentPayoutTransactions, type RecentPayoutBundle } from '@/api/payout'
+import { fetchRiskTiers } from '@/api/riskTiers'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import { DASHBOARD_LIST_PAGE_SIZE } from '@/constants/listPagination'
 import { patchAuth, type UserRole } from '@/store/slices/authSlice'
 import { setInvestorKycRecord, setKycStatus } from '@/store/slices/kycSlice'
 import { setRecentPayoutBundle } from '@/store/slices/recentTransactionsSlice'
+import { formatActiveRiskTierInterestBand } from '@/utils/riskTierDisplay'
 
 export type LendingPoolCardState = {
   id: string
@@ -52,10 +54,10 @@ export const investorDashboardInitialState: InvestorDashboardState = {
     viewDetailsTo: '/dashboard/investor/lending-pool/fist-commerce-lending-pool',
     poolTitle: 'Fist Commerce Lending Pool',
     tagline: 'For short-duration loans with stable returns.',
-    apyDisplay: '6-8% APY',
-    tvlDisplay: '$538.50K',
-    minDepositDisplay: '$100.00',
-    utilizationDisplay: '60% Allocated',
+    apyDisplay: '—',
+    tvlDisplay: '—',
+    minDepositDisplay: '—',
+    utilizationDisplay: '—',
   },
   poolMetrics: null,
   investorMetrics: null,
@@ -66,18 +68,30 @@ export const investorDashboardInitialState: InvestorDashboardState = {
 
 // NOTE: Single-pool UX — keep one default pool card and only hydrate a few fields from API metrics.
 
-function patchCardFromPoolMetrics(card: LendingPoolCardState, pool: PoolMetrics): LendingPoolCardState {
-  const apy = displayPoolApyPercent(pool.apy)
+function patchCardFromPoolMetrics(
+  card: LendingPoolCardState,
+  pool: PoolMetrics,
+  interestBand?: string | null,
+): LendingPoolCardState {
+  const realizedApy = displayPoolApyPercent(pool.apy)
   const tvl = displayDashboardCompactUsd(pool.tvl)
   const liquid = displayDashboardCompactUsd(pool.liquidAssets)
   const outstanding = displayDashboardCompactUsd(pool.outstanding)
   const available = displayDashboardCompactUsd(pool.availableLiquidity)
   const minDeposit = displayDashboardCompactUsd(pool.minDeposit)
   const utilization = displayPoolUtilization(pool.utilization)
+  // Opportunity card APY uses the risk-tier band; pool-detail Average APY stays on realized pool.apy.
+  const apyDisplay = interestBand
+    ? `${interestBand} APY`
+    : realizedApy !== '—'
+      ? realizedApy.includes('APY')
+        ? realizedApy
+        : `${realizedApy} APY`
+      : card.apyDisplay
 
   return {
     ...card,
-    apyDisplay: apy !== '—' ? (apy.includes('APY') ? apy : `${apy} APY`) : card.apyDisplay,
+    apyDisplay,
     tvlDisplay: tvl !== '—' ? tvl : card.tvlDisplay,
     liquidAssetsDisplay: liquid !== '—' ? liquid : card.liquidAssetsDisplay,
     outstandingDisplay: outstanding !== '—' ? outstanding : card.outstandingDisplay,
@@ -93,7 +107,7 @@ function patchCardFromPoolMetrics(card: LendingPoolCardState, pool: PoolMetrics)
 }
 
 type RefreshInvestorAuth = {
-  auth?: { accessToken?: string | null; role?: UserRole | null }
+  auth?: { accessToken?: string | null; role?: UserRole | null; chainId?: number | null }
 }
 
 const emptyRecentPayout: RecentPayoutBundle = {
@@ -103,12 +117,22 @@ const emptyRecentPayout: RecentPayoutBundle = {
   total: 0,
 }
 
+export type RefreshInvestorDashboardArg = {
+  /** Quiet refresh — do not flip status to loading (avoids sync overlay). */
+  background?: boolean
+}
+
+function isBackgroundRefresh(arg: RefreshInvestorDashboardArg | undefined): boolean {
+  return Boolean(arg?.background)
+}
+
 export const refreshInvestorDashboard = createAsyncThunk(
   'investorDashboard/refresh',
-  async (_arg, thunkApi) => {
+  async (_arg: RefreshInvestorDashboardArg | undefined, thunkApi) => {
     const state = thunkApi.getState() as RefreshInvestorAuth
     const accessToken = state.auth?.accessToken
     const role = state.auth?.role
+    const chainId = state.auth?.chainId
     let kycStatus: 'not_started' | 'pending' | 'verified' | 'rejected' | null = null
     if (role === 'investor' && isUsableApiAccessToken(accessToken)) {
       try {
@@ -126,7 +150,7 @@ export const refreshInvestorDashboard = createAsyncThunk(
     const isKycVerified = kycStatus === 'verified'
 
     try {
-      const [poolMetrics, investorMetrics, recentPayout] = isKycVerified
+      const [poolMetrics, investorMetrics, recentPayout, riskTiers] = isKycVerified
         ? await Promise.all([
             fetchPoolMetrics(accessToken),
             fetchInvestorMetrics(accessToken),
@@ -134,8 +158,9 @@ export const refreshInvestorDashboard = createAsyncThunk(
               limit: DASHBOARD_LIST_PAGE_SIZE,
               offset: 0,
             }).catch(() => emptyRecentPayout),
+            fetchRiskTiers(chainId).catch(() => [] as Awaited<ReturnType<typeof fetchRiskTiers>>),
           ])
-        : ([null, null, emptyRecentPayout] as const)
+        : ([null, null, emptyRecentPayout, [] as Awaited<ReturnType<typeof fetchRiskTiers>>] as const)
 
       const refreshedAt = Date.now()
       thunkApi.dispatch(
@@ -146,7 +171,12 @@ export const refreshInvestorDashboard = createAsyncThunk(
         }),
       )
 
-      return { refreshedAt, poolMetrics, investorMetrics }
+      return {
+        refreshedAt,
+        poolMetrics,
+        investorMetrics,
+        interestBand: formatActiveRiskTierInterestBand([...riskTiers]),
+      }
     } catch (e) {
       return thunkApi.rejectWithValue(
         toUserFacingError(e, 'Dashboard sync failed. Please check your connection and try again.'),
@@ -177,7 +207,8 @@ const investorDashboardSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(refreshInvestorDashboard.pending, (state) => {
+      .addCase(refreshInvestorDashboard.pending, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg)) return
         state.status = 'loading'
         state.error = null
       })
@@ -190,10 +221,22 @@ const investorDashboardSlice = createSlice({
         // Single pool UX: keep default card + hydrate its metrics from the API response.
         const current = state.lendingPools
         if (action.payload.poolMetrics) {
-          state.lendingPools = patchCardFromPoolMetrics(current, action.payload.poolMetrics)
+          state.lendingPools = patchCardFromPoolMetrics(
+            current,
+            action.payload.poolMetrics,
+            action.payload.interestBand,
+          )
+        } else if (action.payload.interestBand) {
+          state.lendingPools = {
+            ...current,
+            apyDisplay: `${action.payload.interestBand} APY`,
+          }
         }
       })
       .addCase(refreshInvestorDashboard.rejected, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg) && state.status === 'succeeded') {
+          return
+        }
         state.status = 'failed'
         state.error =
           (typeof action.payload === 'string' ? action.payload : null) ??

@@ -5,6 +5,7 @@ import {
   isStellarTestnetPreferred,
   readPreferredAppNetwork,
 } from '@/contract_config/networkCapabilities'
+import { usePreferredAppNetwork } from '@/hooks/usePreferredAppNetwork'
 
 export function resolveAppNetworkMode(): AppNetworkMode {
   if (isStellarTestnetPreferred()) return 'stellar-testnet'
@@ -12,11 +13,11 @@ export function resolveAppNetworkMode(): AppNetworkMode {
 }
 
 export function useHasCapability(cap: NetworkCapability): boolean {
-  return hasCapability(resolveAppNetworkMode(), cap)
+  return hasCapability(usePreferredAppNetwork(), cap)
 }
 
 export function useIsStellarMode(): boolean {
-  return readPreferredAppNetwork() === 'stellar-testnet'
+  return usePreferredAppNetwork() === 'stellar-testnet'
 }
 
 /** @deprecated Use useIsStellarMode */

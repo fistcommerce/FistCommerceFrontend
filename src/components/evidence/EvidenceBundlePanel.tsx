@@ -291,6 +291,7 @@ function CheckRow({
   )
 }
 
+/** Admin / investor receivable evidence card (no payout-readiness callout). */
 export default function EvidenceBundlePanel({ bundle, title = 'Receivable' }: Props) {
   const merchant = bundle.merchant as Record<string, string | number | null> | null
   const agreement = bundle.agreement as Record<string, string | null> | null
@@ -504,24 +505,6 @@ export default function EvidenceBundlePanel({ bundle, title = 'Receivable' }: Pr
           </div>
         </div>
       </div>
-
-      {bundle.payoutReadiness ? (
-        <div className="mt-4 rounded-[10px] border border-[#E6E8EC] bg-[#FAFBFD] px-4 py-3">
-          <SectionTitle>Payout</SectionTitle>
-          <p className="text-[14px] text-[#0B1220]">
-            {bundle.payoutReadiness.ready
-              ? 'Ready to pay the merchant.'
-              : 'Payout is held until the items below are resolved.'}
-          </p>
-          {!bundle.payoutReadiness.ready ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-[#92400E]">
-              {bundle.payoutReadiness.failures.map((failure) => (
-                <li key={failure.code}>{failure.message}</li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      ) : null}
     </section>
   )
 }

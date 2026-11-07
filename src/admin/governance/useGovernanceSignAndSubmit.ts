@@ -6,12 +6,16 @@ import {
   fetchMultisigSigningPayload,
   postMultisigProposalSign,
 } from '@/api/multisig/proposals'
-import { isGovernanceSignerAddress } from '@/admin/governance/governanceSigner'
+import {
+  isGovernanceSignerAddress,
+  resolveGovernanceActorAddress,
+} from '@/admin/governance/governanceSigner'
 import type { GovernanceSignSubmitResult } from '@/admin/governance/types'
 import {
   nonceWarningToConfirmPayload,
   type GovernanceConfirmModalApi,
 } from '@/admin/governance/useGovernanceConfirmModal'
+import { isStellarChainId } from '@/stellar/chain'
 import { useAppSelector } from '@/store/hooks'
 import { ensureWalletChain, getWalletClientFromPrivyWallet } from '@/wallet/viemClients'
 import { signUserOpHashTypedData } from '@/wallet/signUserOpHash'
@@ -40,24 +44,37 @@ export function useGovernanceSignAndSubmit(options: UseGovernanceSignAndSubmitOp
         setError('Sign in to sign proposals.')
         return null
       }
-      if (!isConnected || !wallet || !address) {
-        setError('Connect your multisig owner wallet to sign.')
-        return null
-      }
-      if (
-        sessionWallet?.trim() &&
-        sessionWallet.toLowerCase() !== address.toLowerCase()
-      ) {
-        setError(
-          'Connected wallet must match the wallet used for this admin login session.',
-        )
-        return null
-      }
 
       setPending(true)
       setError(null)
       try {
         const payload = await fetchMultisigSigningPayload(accessToken, id)
+        const isSoroban =
+          payload.vm === 'soroban' ||
+          isStellarChainId(payload.chainId) ||
+          !payload.typedData
+
+        const actor = resolveGovernanceActorAddress({
+          connectedAddress: address,
+          sessionWallet,
+          allowSessionWalletFallback: isSoroban,
+        })
+        if (!actor) {
+          throw new Error(
+            isSoroban
+              ? 'Sign in with the Stellar admin (owner) wallet to sign this proposal.'
+              : 'Connect your multisig owner wallet to sign.',
+          )
+        }
+        if (
+          !isSoroban &&
+          sessionWallet?.trim() &&
+          sessionWallet.toLowerCase() !== actor.toLowerCase()
+        ) {
+          throw new Error(
+            'Connected wallet must match the wallet used for this admin login session.',
+          )
+        }
         if (payload.nonceWarning) {
           // Hide loading overlay while the confirm modal is open (same z-index stack).
           setPending(false)
@@ -69,23 +86,34 @@ export function useGovernanceSignAndSubmit(options: UseGovernanceSignAndSubmitOp
           }
           setPending(true)
         }
-        if (!isGovernanceSignerAddress(address, payload.signers)) {
+        if (!isGovernanceSignerAddress(actor, payload.signers)) {
           throw new Error('Connected wallet is not a multisig signer for this proposal.')
         }
-        if (payload.chainId > 0) {
-          await ensureWalletChain(wallet, payload.chainId)
+
+        let signature = 'stellar-confirm'
+        if (!isSoroban) {
+          if (!isConnected || !wallet || !address) {
+            throw new Error('Connect your multisig owner wallet to sign.')
+          }
+          if (payload.chainId > 0) {
+            await ensureWalletChain(wallet, payload.chainId)
+          }
+          if (!payload.typedData) {
+            throw new Error('Missing EIP-712 typedData for proposal signature.')
+          }
+          const walletClient = await getWalletClientFromPrivyWallet(
+            wallet,
+            payload.chainId > 0 ? payload.chainId : undefined,
+          )
+          signature = await signUserOpHashTypedData(
+            walletClient,
+            address as `0x${string}`,
+            payload.typedData,
+          )
         }
-        const walletClient = await getWalletClientFromPrivyWallet(
-          wallet,
-          payload.chainId > 0 ? payload.chainId : undefined,
-        )
-        const signature = await signUserOpHashTypedData(
-          walletClient,
-          address as `0x${string}`,
-          payload.typedData,
-        )
+
         await postMultisigProposalSign(accessToken, id, {
-          signerAddress: address,
+          signerAddress: actor,
           signature,
         })
         const detail = await fetchMultisigProposalDetail(accessToken, id)

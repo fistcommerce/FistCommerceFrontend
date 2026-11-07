@@ -156,8 +156,18 @@ export type WalletLoginSignable = {
   }
 }
 
-export function createWalletLoginSignable(chainId: number, wallet: Address): WalletLoginSignable {
-  const walletCs = getAddress(wallet)
+function isStellarAccountAddress(wallet: string): boolean {
+  const raw = wallet.trim().toUpperCase()
+  return raw.startsWith('G') && raw.length === 56
+}
+
+export function createWalletLoginSignable(
+  chainId: number,
+  wallet: Address | string,
+): WalletLoginSignable {
+  const walletNorm = isStellarAccountAddress(wallet)
+    ? wallet.trim().toUpperCase()
+    : getAddress(wallet as Address)
   const issuedAt = BigInt(Math.floor(Date.now() / 1000))
   const nonce =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
@@ -165,7 +175,7 @@ export function createWalletLoginSignable(chainId: number, wallet: Address): Wal
       : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 14)}`
 
   const message = {
-    wallet: walletCs,
+    wallet: walletNorm as Address,
     issuedAt,
     action: 'login' as const,
     nonce,
@@ -177,7 +187,7 @@ export function createWalletLoginSignable(chainId: number, wallet: Address): Wal
     primaryType: 'Auth',
     message,
     signedMessageForApi: {
-      wallet: walletCs,
+      wallet: walletNorm,
       issuedAt: Number(issuedAt),
       action: 'login',
       nonce,
@@ -193,17 +203,20 @@ function parseChainIdFromLoginBody(body: AuthLoginResponseBody): number | null {
 
 export async function postWalletLogin(params: {
   signedMessage: WalletLoginSignable['signedMessageForApi']
-  signature: Hex
+  signature: Hex | string
   signerAddress: string
   /** Required by API — must match the onboarding role the user selected. */
   role: UserRole
   /**
    * Required by API — must match the EIP-712 domain `chainId` used to sign
-   * (and the active `APP_CHAIN.id`).
+   * (and the active `APP_CHAIN.id`), or Stellar Testnet chain id.
    */
   chainId: number
 }): Promise<WalletLoginResult> {
   const base = requireApiBaseUrl()
+  const signerAddress = isStellarAccountAddress(params.signerAddress)
+    ? params.signerAddress.trim().toUpperCase()
+    : getAddress(params.signerAddress as Address)
   const res = await fetch(`${base}${LOGIN_PATH}`, {
     method: 'POST',
     headers: {
@@ -213,7 +226,7 @@ export async function postWalletLogin(params: {
     body: JSON.stringify({
       signedMessage: params.signedMessage,
       signature: params.signature,
-      signerAddress: getAddress(params.signerAddress as Address),
+      signerAddress,
       role: params.role,
       chainId: params.chainId,
     }),

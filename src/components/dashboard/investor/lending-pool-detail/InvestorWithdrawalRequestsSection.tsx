@@ -8,6 +8,7 @@ import {
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import { POOL_SECTION_TITLE } from '@/components/dashboard/shared/poolDetailTypography'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useAppSelector } from '@/store/hooks'
 
@@ -31,6 +32,7 @@ function StatusPill({ status, label }: { status: InvestorWithdrawalRequestStatus
 
 const InvestorWithdrawalRequestsSection = () => {
   const accessToken = useAppSelector((s) => s.auth.accessToken)
+  const stellarMode = useIsStellarTestnetMode()
   const [rows, setRows] = useState<InvestorWithdrawalRequestRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -42,7 +44,7 @@ const InvestorWithdrawalRequestsSection = () => {
   const contracts = useTestnetContracts()
 
   const loadRequests = useCallback(async () => {
-    if (!accessToken?.trim()) return
+    if (stellarMode || !accessToken?.trim()) return
     setLoading(true)
     setError(null)
     try {
@@ -58,12 +60,17 @@ const InvestorWithdrawalRequestsSection = () => {
     } finally {
       setLoading(false)
     }
-  }, [accessToken])
+  }, [accessToken, stellarMode])
 
   useEffect(() => {
-    if (!accessToken?.trim()) return
+    if (stellarMode || !accessToken?.trim()) return
     void loadRequests()
-  }, [accessToken, loadRequests])
+  }, [accessToken, loadRequests, stellarMode])
+
+  if (stellarMode) {
+    // Track A uses TradeCreditPool redeem, not the EVM withdrawal-request queue.
+    return null
+  }
 
   const handleWithdraw = useCallback(
     async (row: InvestorWithdrawalRequestRow) => {

@@ -1,3 +1,4 @@
+import { blockExplorerLinkLabel } from '@/api/payout'
 import type { RecentTx } from '@/components/dashboard/investor/lending-pool-detail/types'
 import { POOL_SECTION_TITLE } from '@/components/dashboard/shared/poolDetailTypography'
 import { ListPagination } from '@/components/shared/ListPagination'
@@ -37,7 +38,7 @@ export type RecentTransactionsSectionProps = {
   paginationMeta: ListPaginationMeta
   onPageChange: (page: number) => void
   loading?: boolean
-  /** When set, shows “View on Arbiscan” next to the section title. */
+  /** When set, shows an explorer link next to the section title. */
   contractExplorerHref?: string | null
   /** Wrap in a bordered card section (default true). Set false when nested inside another card. */
   bordered?: boolean
@@ -56,6 +57,7 @@ export function RecentTransactionsSection({
   bordered = true,
   className = '',
 }: RecentTransactionsSectionProps) {
+  const explorerLabel = blockExplorerLinkLabel(contractExplorerHref)
   const body = (
     <>
       <div className="flex flex-row flex-wrap items-center justify-between gap-3 mb-4">
@@ -67,7 +69,7 @@ export function RecentTransactionsSection({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-[#195EBC] text-[15px] font-semibold hover:underline shrink-0"
           >
-            View on Arbiscan
+            {explorerLabel}
             <ExternalLinkGlyph className="opacity-90" />
           </a>
         ) : null}

@@ -58,9 +58,18 @@ type RefreshAdminAuth = {
   auth?: { accessToken?: string | null }
 }
 
+export type RefreshAdminDashboardArg = {
+  /** Quiet refresh — do not flip status to loading (avoids sync overlay). */
+  background?: boolean
+}
+
+function isBackgroundRefresh(arg: RefreshAdminDashboardArg | undefined): boolean {
+  return Boolean(arg?.background)
+}
+
 export const refreshAdminDashboard = createAsyncThunk(
   'adminDashboard/refresh',
-  async (_arg, thunkApi) => {
+  async (_arg: RefreshAdminDashboardArg | undefined, thunkApi) => {
     const state = thunkApi.getState() as RefreshAdminAuth
     const accessToken = state.auth?.accessToken
     if (!accessToken?.trim()) {
@@ -108,7 +117,8 @@ const adminDashboardSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(refreshAdminDashboard.pending, (state) => {
+      .addCase(refreshAdminDashboard.pending, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg)) return
         state.status = 'loading'
         state.error = null
       })
@@ -122,6 +132,9 @@ const adminDashboardSlice = createSlice({
         state.activities = action.payload.activities
       })
       .addCase(refreshAdminDashboard.rejected, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg) && state.status === 'succeeded') {
+          return
+        }
         state.status = 'failed'
         state.error =
           (typeof action.payload === 'string' ? action.payload : null) ??

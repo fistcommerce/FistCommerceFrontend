@@ -172,7 +172,8 @@ export type MultisigExecutionPayload = {
   entryPoint: `0x${string}`
   handleOpsGas: number
   executionNote: string
-  userOp: {
+  /** Present for EVM ERC-4337 execute; absent on Soroban (use backend execute). */
+  userOp?: {
     sender: `0x${string}`
     nonce: bigint
     initCode: `0x${string}`
@@ -183,6 +184,11 @@ export type MultisigExecutionPayload = {
     paymasterAndData: `0x${string}`
     signature: `0x${string}`
   }
+  vm?: string
+  multisigAddress?: string
+  networkPassphrase?: string
+  onChainProposalId?: number | string | null
+  method?: string
 }
 
 function asHex(value: unknown, fallback = '0x'): `0x${string}` {
@@ -220,6 +226,27 @@ export async function fetchMultisigExecutionPayload(
   }
   const raw = await res.json()
   const r = asRecord(raw)
+  const vm = pickStr(r, 'vm')
+  if (vm === 'soroban') {
+    const onChainRaw = r.onChainProposalId ?? r.on_chain_proposal_id
+    return {
+      proposalId: pickStr(r, 'proposalId', 'proposal_id') || id,
+      chainId: Number(r.chainId ?? r.chain_id ?? 0) || 0,
+      entryPoint: '0x' as `0x${string}`,
+      handleOpsGas: 0,
+      executionNote: pickStr(r, 'executionNote', 'execution_note'),
+      vm: 'soroban',
+      multisigAddress: pickStr(r, 'multisigAddress', 'multisig_address') || undefined,
+      networkPassphrase: pickStr(r, 'networkPassphrase', 'network_passphrase') || undefined,
+      onChainProposalId:
+        onChainRaw == null || onChainRaw === ''
+          ? null
+          : (typeof onChainRaw === 'number' || typeof onChainRaw === 'string'
+              ? onChainRaw
+              : String(onChainRaw)),
+      method: pickStr(r, 'method') || 'execute',
+    }
+  }
   const entryPoint = asHex(pickStr(r, 'entryPoint', 'entry_point'))
   const userOpRaw = asRecord(r.userOp ?? r.user_op)
   if (!entryPoint || entryPoint === '0x' || !userOpRaw.sender) {

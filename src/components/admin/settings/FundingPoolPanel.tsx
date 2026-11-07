@@ -22,7 +22,7 @@ import {
   tokenAmountsEqual,
 } from '@/api/adminProtocolSettings'
 import {
-  DEFAULT_FUNDING_POOL,
+  buildDefaultFundingPool,
   type FundingPoolSettingsState,
 } from '@/components/admin/settings/protocolSettingsDefaults'
 import {
@@ -31,28 +31,32 @@ import {
   SettingsSectionActions,
   shortAddress,
 } from '@/components/admin/settings/SettingsPanel'
+import { useIsStellarMode } from '@/hooks/useNetworkCapability'
 import { isAbortError } from '@/utils/abortError'
 import { useAppSelector } from '@/store/hooks'
 
 function toFundingPoolDraft(
   api: Awaited<ReturnType<typeof fetchProtocolSettingsState>>,
+  isStellar: boolean,
 ): FundingPoolSettingsState {
+  const defaults = buildDefaultFundingPool(isStellar)
   return {
-    minDeposit: api.fundingPool.minDeposit || DEFAULT_FUNDING_POOL.minDeposit,
-    payoutRouter: api.fundingPool.payoutRouter || DEFAULT_FUNDING_POOL.payoutRouter,
-    acceptedToken: api.fundingPool.acceptedToken || DEFAULT_FUNDING_POOL.acceptedToken,
+    minDeposit: api.fundingPool.minDeposit || defaults.minDeposit,
+    payoutRouter: api.fundingPool.payoutRouter || defaults.payoutRouter,
+    acceptedToken: api.fundingPool.acceptedToken || defaults.acceptedToken,
     withdrawalRequestDurationSeconds:
       api.fundingPool.withdrawalRequestDurationSeconds ||
-      DEFAULT_FUNDING_POOL.withdrawalRequestDurationSeconds,
+      defaults.withdrawalRequestDurationSeconds,
     withdrawalRequestGapSeconds:
-      api.fundingPool.withdrawalRequestGapSeconds || DEFAULT_FUNDING_POOL.withdrawalRequestGapSeconds,
+      api.fundingPool.withdrawalRequestGapSeconds || defaults.withdrawalRequestGapSeconds,
   }
 }
 
 const FundingPoolPanel = () => {
+  const isStellar = useIsStellarMode()
   const accessToken = useAppSelector((s) => s.auth.accessToken)
-  const [draft, setDraft] = useState<FundingPoolSettingsState>(() => ({ ...DEFAULT_FUNDING_POOL }))
-  const baselineRef = useRef<FundingPoolSettingsState>(DEFAULT_FUNDING_POOL)
+  const [draft, setDraft] = useState<FundingPoolSettingsState>(() => buildDefaultFundingPool(false))
+  const baselineRef = useRef<FundingPoolSettingsState>(buildDefaultFundingPool(false))
   const submitAbortRef = useRef<AbortController | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saveNotice, setSaveNotice] = useState<string | null>(null)
@@ -65,12 +69,18 @@ const FundingPoolPanel = () => {
     baselineRef.current = next
   }, [])
 
+  useEffect(() => {
+    const defaults = buildDefaultFundingPool(isStellar)
+    setDraft(defaults)
+    baselineRef.current = defaults
+  }, [isStellar])
+
   const refreshChainState = useCallback(async () => {
     if (!accessToken?.trim()) return
     const state = await fetchProtocolSettingsState(accessToken)
-    syncDraftToChain(toFundingPoolDraft(state))
+    syncDraftToChain(toFundingPoolDraft(state, isStellar))
     setLoadError(null)
-  }, [accessToken, syncDraftToChain])
+  }, [accessToken, isStellar, syncDraftToChain])
 
   useEffect(() => {
     if (!accessToken?.trim()) return
@@ -79,7 +89,7 @@ const FundingPoolPanel = () => {
       try {
         const state = await fetchProtocolSettingsState(accessToken)
         if (cancelled) return
-        syncDraftToChain(toFundingPoolDraft(state))
+        syncDraftToChain(toFundingPoolDraft(state, isStellar))
         setLoadError(null)
       } catch (e) {
         if (!cancelled) {
@@ -90,10 +100,14 @@ const FundingPoolPanel = () => {
     return () => {
       cancelled = true
     }
-  }, [accessToken, syncDraftToChain])
+  }, [accessToken, isStellar, syncDraftToChain])
 
   const handleSave = useCallback(async () => {
     setSaveNotice(null)
+    if (isStellar) {
+      setSaveNotice('TradeCreditPool settings are deploy-time on Stellar Testnet (read-only here).')
+      return
+    }
     if (!accessToken?.trim()) {
       setSaveNotice('Sign in to submit funding pool changes.')
       return
@@ -247,7 +261,7 @@ const FundingPoolPanel = () => {
         submitAbortRef.current = null
       }
     }
-  }, [accessToken, draft])
+  }, [accessToken, draft, isStellar])
 
   const handleDismissSubmitFeedback = useCallback(() => {
     submitAbortRef.current?.abort()
@@ -298,15 +312,22 @@ const FundingPoolPanel = () => {
       />
 
       <SettingsPanel
-        title="Funding Pool"
-        description="Pool deposit minimum and payout router wiring. Apply creates multisig proposals; on-chain state updates after execute."
+        title={isStellar ? 'Trade Credit Pool' : 'Funding Pool'}
+        description={
+          isStellar
+            ? 'Soroban TradeCreditPool wiring from protocol.json. Track A has no EVM withdrawal-request queue; redeem is direct.'
+            : 'Pool deposit minimum and payout router wiring. Apply creates multisig proposals; on-chain state updates after execute.'
+        }
+        badge={isStellar ? { label: 'Read-only', variant: 'neutral' } : undefined}
         actions={
-          <SettingsSectionActions
-            onCancel={handleCancelDraft}
-            onSave={() => void handleSave()}
-            saving={submitPhase === 'loading'}
-            saveLabel="Apply"
-          />
+          isStellar ? undefined : (
+            <SettingsSectionActions
+              onCancel={handleCancelDraft}
+              onSave={() => void handleSave()}
+              saving={submitPhase === 'loading'}
+              saveLabel="Apply"
+            />
+          )
         }
       >
         {loadError ? (
@@ -322,47 +343,53 @@ const FundingPoolPanel = () => {
             label="Minimum deposit"
             value={draft.minDeposit}
             suffix="tokens"
-            hint="Maps to setMinDeposit."
-            onChange={(v) => setField('minDeposit', v)}
+            hint={isStellar ? 'Protocol default for Stellar Testnet deposits.' : 'Maps to setMinDeposit.'}
+            readOnly={isStellar}
+            onChange={isStellar ? undefined : (v) => setField('minDeposit', v)}
           />
           <SettingsField
             id="payoutRouter"
             label="Payout router address"
             value={draft.payoutRouter}
             mono
-            hint={`Current: ${shortAddress(draft.payoutRouter)} · setPayoutRouter`}
-            onChange={(v) => setField('payoutRouter', v)}
+            hint={`Current: ${shortAddress(draft.payoutRouter)}${isStellar ? '' : ' · setPayoutRouter'}`}
+            readOnly={isStellar}
+            onChange={isStellar ? undefined : (v) => setField('payoutRouter', v)}
           />
           <SettingsField
             id="acceptedToken"
-            label="Accepted token (immutable)"
+            label={isStellar ? 'Accepted token (FISTUSD SAC)' : 'Accepted token (immutable)'}
             value={draft.acceptedToken}
             mono
             readOnly
-            hint="Fixed at FundingPool deployment."
+            hint={isStellar ? 'Stellar Asset Contract for FISTUSD.' : 'Fixed at FundingPool deployment.'}
           />
-          <SettingsField
-            id="withdrawalRequestDuration"
-            label="Withdrawal request duration"
-            value={String(draft.withdrawalRequestDurationSeconds)}
-            suffix="seconds"
-            hint={`Maps to setWithdrawalRequestDuration (${secondsToHumanDuration(draft.withdrawalRequestDurationSeconds)}). Range: 1 hour – 30 days.`}
-            onChange={(v) => {
-              const n = Number(v.trim())
-              setField('withdrawalRequestDurationSeconds', Number.isFinite(n) ? n : 0)
-            }}
-          />
-          <SettingsField
-            id="withdrawalRequestGap"
-            label="Withdrawal request gap"
-            value={String(draft.withdrawalRequestGapSeconds)}
-            suffix="seconds"
-            hint={`Maps to setWithdrawalRequestGap (${secondsToHumanDuration(draft.withdrawalRequestGapSeconds)}). Range: 1 minute – 1 day.`}
-            onChange={(v) => {
-              const n = Number(v.trim())
-              setField('withdrawalRequestGapSeconds', Number.isFinite(n) ? n : 0)
-            }}
-          />
+          {!isStellar ? (
+            <>
+              <SettingsField
+                id="withdrawalRequestDuration"
+                label="Withdrawal request duration"
+                value={String(draft.withdrawalRequestDurationSeconds)}
+                suffix="seconds"
+                hint={`Maps to setWithdrawalRequestDuration (${secondsToHumanDuration(draft.withdrawalRequestDurationSeconds)}). Range: 1 hour – 30 days.`}
+                onChange={(v) => {
+                  const n = Number(v.trim())
+                  setField('withdrawalRequestDurationSeconds', Number.isFinite(n) ? n : 0)
+                }}
+              />
+              <SettingsField
+                id="withdrawalRequestGap"
+                label="Withdrawal request gap"
+                value={String(draft.withdrawalRequestGapSeconds)}
+                suffix="seconds"
+                hint={`Maps to setWithdrawalRequestGap (${secondsToHumanDuration(draft.withdrawalRequestGapSeconds)}). Range: 1 minute – 1 day.`}
+                onChange={(v) => {
+                  const n = Number(v.trim())
+                  setField('withdrawalRequestGapSeconds', Number.isFinite(n) ? n : 0)
+                }}
+              />
+            </>
+          ) : null}
         </div>
       </SettingsPanel>
     </>

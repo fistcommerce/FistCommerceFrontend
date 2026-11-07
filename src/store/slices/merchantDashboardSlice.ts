@@ -12,10 +12,12 @@ import {
 } from '@/api/metrics'
 import { toUserFacingError } from '@/api/client'
 import { deriveKycStatusFromMerchantRecord, fetchMerchantKycRecord } from '@/api/kycMerchant'
+import { fetchRiskTiers } from '@/api/riskTiers'
 import { isUsableApiAccessToken } from '@/auth/accessTokenPolicy'
 import type { LendingPoolCardState } from '@/store/slices/investorDashboardSlice'
 import { patchAuth } from '@/store/slices/authSlice'
 import { setKycStatus, setMerchantKycRecord } from '@/store/slices/kycSlice'
+import { formatActiveRiskTierInterestBand } from '@/utils/riskTierDisplay'
 
 export type MerchantDashboardSyncStatus = 'idle' | 'loading' | 'succeeded' | 'failed'
 
@@ -39,10 +41,10 @@ export const merchantDashboardInitialState: MerchantDashboardState = {
     viewDetailsTo: '/dashboard/merchant/lending-pool/fist-commerce-lending-pool',
     poolTitle: 'Fist Commerce Lending Pool',
     tagline: 'For short-duration loans with stable returns.',
-    apyDisplay: '6-8% APY',
-    tvlDisplay: '$538.50K',
-    minDepositDisplay: '$100.00',
-    utilizationDisplay: '60% Allocated',
+    apyDisplay: '—',
+    tvlDisplay: '—',
+    minDepositDisplay: '—',
+    utilizationDisplay: '—',
   },
   poolMetrics: null,
   merchantMetrics: null,
@@ -69,12 +71,24 @@ function extractTotalDepositedDisplay(payload: unknown): string | null {
   return null
 }
 
+export type RefreshMerchantDashboardArg = {
+  /** Quiet refresh — do not flip status to loading (avoids sync overlay). */
+  background?: boolean
+}
+
+function isBackgroundRefresh(arg: RefreshMerchantDashboardArg | undefined): boolean {
+  return Boolean(arg?.background)
+}
+
 export const refreshMerchantDashboard = createAsyncThunk(
   'merchantDashboard/refresh',
-  async (_arg, thunkApi) => {
-    const state = thunkApi.getState() as { auth?: { accessToken?: string | null; role?: string | null } }
+  async (_arg: RefreshMerchantDashboardArg | undefined, thunkApi) => {
+    const state = thunkApi.getState() as {
+      auth?: { accessToken?: string | null; role?: string | null; chainId?: number | null }
+    }
     const accessToken = state.auth?.accessToken
     const role = state.auth?.role
+    const chainId = state.auth?.chainId
 
     let kycStatus: 'not_started' | 'pending' | 'verified' | 'rejected' | null = null
     if (role === 'merchant' && isUsableApiAccessToken(accessToken)) {
@@ -94,15 +108,21 @@ export const refreshMerchantDashboard = createAsyncThunk(
 
     // Hard gate: never fetch dashboard metrics unless KYC is verified.
     if (!isKycVerified) {
-      return { refreshedAt: Date.now(), poolMetrics: null, merchantMetrics: null }
+      return { refreshedAt: Date.now(), poolMetrics: null, merchantMetrics: null, interestBand: null }
     }
 
     try {
-      const [poolMetrics, merchantMetrics] = await Promise.all([
+      const [poolMetrics, merchantMetrics, riskTiers] = await Promise.all([
         fetchPoolMetrics(accessToken),
         fetchMerchantMetrics(accessToken),
+        fetchRiskTiers(chainId).catch(() => []),
       ])
-      return { refreshedAt: Date.now(), poolMetrics, merchantMetrics }
+      return {
+        refreshedAt: Date.now(),
+        poolMetrics,
+        merchantMetrics,
+        interestBand: formatActiveRiskTierInterestBand(riskTiers),
+      }
     } catch (e) {
       return thunkApi.rejectWithValue(
         toUserFacingError(e, 'Dashboard sync failed. Please check your connection and try again.'),
@@ -136,7 +156,8 @@ const merchantDashboardSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(refreshMerchantDashboard.pending, (state) => {
+      .addCase(refreshMerchantDashboard.pending, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg)) return
         state.status = 'loading'
         state.error = null
       })
@@ -153,7 +174,17 @@ const merchantDashboardSlice = createSlice({
         const available = pool ? displayDashboardCompactUsd(pool.availableLiquidity) : null
         const util = pool ? displayPoolUtilization(pool.utilization) : null
         const minDep = pool ? displayDashboardCompactUsd(pool.minDeposit) : null
-        const apy = pool ? displayPoolApyPercent(pool.apy) : null
+        // Opportunity card APY: risk-tier interest band (product rates). Pool-detail
+        // "Average APY to Investors" keeps realized pool.apy separately.
+        const interestBand = action.payload.interestBand
+        const realizedApy = pool ? displayPoolApyPercent(pool.apy) : null
+        const apyDisplay = interestBand
+          ? `${interestBand} APY`
+          : realizedApy && realizedApy !== '—'
+            ? realizedApy.includes('APY')
+              ? realizedApy
+              : `${realizedApy} APY`
+            : state.lendingPools.apyDisplay
 
         state.lendingPools = {
           ...state.lendingPools,
@@ -164,12 +195,15 @@ const merchantDashboardSlice = createSlice({
           utilizationDisplay:
             util && util !== '—' ? (util.toLowerCase().includes('allocated') ? util : `${util} Allocated`) : state.lendingPools.utilizationDisplay,
           minDepositDisplay: minDep && minDep !== '—' ? minDep : state.lendingPools.minDepositDisplay,
-          apyDisplay: apy && apy !== '—' ? (apy.includes('APY') ? apy : `${apy} APY`) : state.lendingPools.apyDisplay,
+          apyDisplay,
         }
         const total = extractTotalDepositedDisplay(action.payload.merchantMetrics)
         if (total) state.totalDepositsDisplay = total
       })
       .addCase(refreshMerchantDashboard.rejected, (state, action) => {
+        if (isBackgroundRefresh(action.meta.arg) && state.status === 'succeeded') {
+          return
+        }
         state.status = 'failed'
         state.error =
           (typeof action.payload === 'string' ? action.payload : null) ??

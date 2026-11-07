@@ -40,6 +40,8 @@ export type MerchantRepayLoanContext = {
   amountOwedHuman: number | null
   review: MerchantRepayReviewBreakdown
   onChainReceivableId: `0x${string}` | null
+  /** Raw TradeCreditPool receivable id (Stellar Track A string ids). */
+  stellarReceivableId: string | null
   isLoading: boolean
   isError: boolean
   isValid: boolean
@@ -54,11 +56,20 @@ const EMPTY_CONTEXT: MerchantRepayLoanContext = {
   amountOwedHuman: null,
   review: emptyRepayReviewBreakdown(),
   onChainReceivableId: null,
+  stellarReceivableId: null,
   isLoading: false,
   isError: false,
   isValid: false,
   canRepay: false,
   canRepayOnChain: false,
+}
+
+function stellarReceivableIdFromDetails(details: LoanDetailsResponse): string | null {
+  const raw = details.receivable.receivableId?.trim()
+  if (!raw) return null
+  // EVM ids normalize to 0x+64 hex; Stellar Track A uses human string ids.
+  if (/^0x[0-9a-fA-F]{64}$/.test(raw) || /^[0-9a-fA-F]{64}$/.test(raw)) return null
+  return raw
 }
 
 function formatMoney(raw: string | null | undefined): string {
@@ -121,6 +132,7 @@ export function useMerchantRepayLoanContext(receivableId: string | undefined): M
       amountOwedHuman: repayState.amountOwedHuman,
       review,
       onChainReceivableId: null,
+      stellarReceivableId: null,
       isLoading: false,
       isError: false,
       isValid: true,
@@ -139,6 +151,7 @@ export function useMerchantRepayLoanContext(receivableId: string | undefined): M
       amountOwedHuman: null,
       review: emptyRepayReviewBreakdown(),
       onChainReceivableId: null,
+      stellarReceivableId: null,
       isLoading: true,
       isError: false,
       isValid: true,
@@ -151,6 +164,7 @@ export function useMerchantRepayLoanContext(receivableId: string | undefined): M
     const { details: api, onChainReceivableId, repayState } = query.data
     const owedRaw = api.summary.amountOwed ?? api.summary.funding
     const review = mapLoanDetailsToRepayReviewBreakdown(api)
+    const stellarReceivableId = stellarReceivableIdFromDetails(api)
 
     return {
       loanId,
@@ -165,11 +179,13 @@ export function useMerchantRepayLoanContext(receivableId: string | undefined): M
       amountOwedHuman: repayState.amountOwedHuman ?? parseMoneyToHuman(owedRaw),
       review,
       onChainReceivableId,
+      stellarReceivableId,
       isLoading: false,
       isError: Boolean(query.isError),
       isValid: true,
       canRepay: repayState.canRepay,
-      canRepayOnChain: repayState.canRepay && onChainReceivableId !== null,
+      canRepayOnChain:
+        repayState.canRepay && (onChainReceivableId !== null || stellarReceivableId !== null),
     }
   }
 
@@ -180,6 +196,7 @@ export function useMerchantRepayLoanContext(receivableId: string | undefined): M
     amountOwedHuman: null,
     review: emptyRepayReviewBreakdown(),
     onChainReceivableId: null,
+    stellarReceivableId: null,
     isLoading: false,
     isError: Boolean(fetchFromApi && query.isError),
     isValid: true,

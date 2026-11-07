@@ -10,10 +10,10 @@ const LendingPoolOpportunityCard = ({
   viewDetailsTo,
   poolTitle = 'Fist Commerce Lending Pool',
   tagline = 'For short-duration loans with stable returns.',
-  apyDisplay = '6-8% APY',
-  tvlDisplay = '538,500 USDC',
-  minDepositDisplay = '100 USDC',
-  utilizationDisplay = '60% Allocated',
+  apyDisplay = '—',
+  tvlDisplay = '—',
+  minDepositDisplay = '—',
+  utilizationDisplay = '—',
 }: LendingPoolOpportunityCardProps) => {
   const detailsLinkLabel = (
     <span className="hidden lg:inline text-[#195EBC] underline text-[20px] whitespace-nowrap pt-1">

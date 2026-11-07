@@ -3,7 +3,22 @@ import { apiUrl, parseJsonResponse } from '@/api/client'
 import { fetchWithAuthRecovery } from '@/api/authorizedFetch'
 import { isAddress } from 'viem'
 
+export type ProtocolSettingsRegistryRow = {
+  label: string
+  value: string
+}
+
+export type ProtocolSettingsRegistryGroup = {
+  contract: string
+  rows: ProtocolSettingsRegistryRow[]
+}
+
 export type ProtocolSettingsState = {
+  executionMode?: string
+  admin?: string
+  message?: string
+  contracts?: Record<string, string>
+  contractRegistry?: ProtocolSettingsRegistryGroup[]
   fundingPool: {
     minDeposit: string
     withdrawalRequestDurationSeconds: number
@@ -11,6 +26,7 @@ export type ProtocolSettingsState = {
     payoutRouter: string
     allocator: string
     acceptedToken: string
+    tradeCreditPool?: string
   }
   payoutRouter: {
     fundingPool: string
@@ -22,6 +38,12 @@ export type ProtocolSettingsState = {
     maxMerchantBps: number
     bankerYearDays: number
     maxTenorRateBps: number
+    tiers?: Array<{
+      id: number
+      durationDays: number
+      interestPercent: number
+      active: boolean
+    }>
   }
 }
 
@@ -68,6 +90,27 @@ function pickNumber(record: Record<string, unknown>, ...keys: string[]): number 
   return 0
 }
 
+function normalizeContractRegistry(raw: unknown): ProtocolSettingsRegistryGroup[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const groups: ProtocolSettingsRegistryGroup[] = []
+  for (const item of raw) {
+    const group = asRecord(item)
+    const contract = pickStr(group, 'contract')
+    const rowsRaw = group.rows
+    if (!contract || !Array.isArray(rowsRaw)) continue
+    const rows: ProtocolSettingsRegistryRow[] = []
+    for (const rowItem of rowsRaw) {
+      const row = asRecord(rowItem)
+      const label = pickStr(row, 'label')
+      const value = pickStr(row, 'value')
+      if (!label) continue
+      rows.push({ label, value })
+    }
+    groups.push({ contract, rows })
+  }
+  return groups.length > 0 ? groups : undefined
+}
+
 function normalizeProtocolSettingsState(raw: unknown): ProtocolSettingsState {
   const r = asRecord(raw)
   const fundingPool = asRecord(r.fundingPool ?? r.funding_pool)
@@ -75,12 +118,40 @@ function normalizeProtocolSettingsState(raw: unknown): ProtocolSettingsState {
   const riskAllocator = asRecord(
     r.riskAllocator ?? r.risk_allocator ?? r.allocationController ?? r.allocation_controller,
   )
+  const contractsRaw = asRecord(r.contracts)
 
   const maxMerchantBps =
     pickNumber(riskAllocator, 'maxMerchantBps', 'max_merchant_bps') ||
     pickNumber(r, 'maxMerchantBps', 'max_merchant_bps')
 
+  const tiersRaw = riskAllocator.tiers
+  const tiers = Array.isArray(tiersRaw)
+    ? tiersRaw
+        .map((item) => {
+          const t = asRecord(item)
+          const id = pickNumber(t, 'id')
+          if (!id) return null
+          return {
+            id,
+            durationDays: pickNumber(t, 'durationDays', 'duration_days'),
+            interestPercent: pickNumber(t, 'interestPercent', 'interest_percent'),
+            active: Boolean(t.active ?? true),
+          }
+        })
+        .filter((t): t is NonNullable<typeof t> => t != null)
+    : undefined
+
+  const contracts: Record<string, string> = {}
+  for (const [key, value] of Object.entries(contractsRaw)) {
+    if (typeof value === 'string' && value.trim()) contracts[key] = value.trim()
+  }
+
   return {
+    executionMode: pickStr(r, 'executionMode', 'execution_mode') || undefined,
+    admin: pickStr(r, 'admin') || undefined,
+    message: pickStr(r, 'message') || undefined,
+    contracts: Object.keys(contracts).length > 0 ? contracts : undefined,
+    contractRegistry: normalizeContractRegistry(r.contractRegistry ?? r.contract_registry),
     fundingPool: {
       minDeposit: pickStr(fundingPool, 'minDeposit', 'min_deposit'),
       withdrawalRequestDurationSeconds: pickNumber(
@@ -96,6 +167,7 @@ function normalizeProtocolSettingsState(raw: unknown): ProtocolSettingsState {
       payoutRouter: pickStr(fundingPool, 'payoutRouter', 'payout_router'),
       allocator: pickStr(fundingPool, 'allocator'),
       acceptedToken: pickStr(fundingPool, 'acceptedToken', 'accepted_token'),
+      tradeCreditPool: pickStr(fundingPool, 'tradeCreditPool', 'trade_credit_pool') || undefined,
     },
     payoutRouter: {
       fundingPool: pickStr(payoutRouter, 'fundingPool', 'funding_pool'),
@@ -107,6 +179,7 @@ function normalizeProtocolSettingsState(raw: unknown): ProtocolSettingsState {
       maxMerchantBps,
       bankerYearDays: pickNumber(riskAllocator, 'bankerYearDays', 'banker_year_days'),
       maxTenorRateBps: pickNumber(riskAllocator, 'maxTenorRateBps', 'max_tenor_rate_bps'),
+      tiers,
     },
   }
 }

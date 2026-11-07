@@ -4,8 +4,12 @@ import { AdminStatusPill } from '@/components/admin/primitives'
 
 export function shortAddress(value: string): string {
   const raw = value.trim()
-  if (!raw.startsWith('0x') || raw.length <= 14) return raw
-  return `${raw.slice(0, 6)}…${raw.slice(-4)}`
+  if (!raw || raw.length <= 14) return raw
+  // EVM 0x… or Stellar C… / G… contract & account ids
+  if (raw.startsWith('0x') || /^[CG][A-Z0-9]{55}$/i.test(raw)) {
+    return `${raw.slice(0, 6)}…${raw.slice(-4)}`
+  }
+  return raw
 }
 
 type SettingsPanelProps = {

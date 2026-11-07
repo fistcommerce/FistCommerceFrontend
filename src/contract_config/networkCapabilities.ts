@@ -74,6 +74,7 @@ export function hasCapability(mode: AppNetworkMode, cap: NetworkCapability): boo
 }
 
 const PREFERRED_KEY = 'fistcommerce.preferredNetwork'
+export const PREFERRED_NETWORK_EVENT = 'fistcommerce:preferred-network'
 
 export type PreferredNetwork = 'testnet' | 'mainnet' | 'stellar-testnet'
 
@@ -97,6 +98,11 @@ export function writePreferredAppNetwork(choice: PreferredNetwork) {
     localStorage.setItem(PREFERRED_KEY, choice)
   } catch {
     /* ignore */
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent(PREFERRED_NETWORK_EVENT, { detail: { network: choice } }),
+    )
   }
 }
 

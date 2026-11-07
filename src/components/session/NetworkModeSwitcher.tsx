@@ -6,11 +6,14 @@ import {
   readPreferredAppNetwork,
   writePreferredAppNetwork,
 } from '@/contract_config/networkCapabilities'
+import { STELLAR_TESTNET_CHAIN_ID, STELLAR_TESTNET_LABEL } from '@/stellar/chain'
+import { disconnectStellarWalletKit } from '@/stellar/walletsKit'
 import { MAINNET_CHAIN, TESTNET_CHAIN } from '@/wallet/appChain'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { formatWalletChainSwitchError } from '@/wallet/walletChainErrors'
 import { ensureWalletChain } from '@/wallet/viemClients'
-import { useAppSelector } from '@/store/hooks'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { resetWallet } from '@/store/slices/walletSlice'
 
 /** @deprecated Prefer readPreferredAppNetwork from networkCapabilities */
 export function readPreferredNetwork(): Exclude<PreferredNetwork, 'stellar-testnet'> {
@@ -20,6 +23,15 @@ export function readPreferredNetwork(): Exclude<PreferredNetwork, 'stellar-testn
 
 export function selectedNetworkChain() {
   return readPreferredAppNetwork() === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
+}
+
+/** Login / display target for the preferred app network (includes Stellar Testnet). */
+export function selectedLoginNetwork(): { id: number; name: string; isStellar: boolean } {
+  if (readPreferredAppNetwork() === 'stellar-testnet') {
+    return { id: STELLAR_TESTNET_CHAIN_ID, name: STELLAR_TESTNET_LABEL, isStellar: true }
+  }
+  const chain = selectedNetworkChain()
+  return { id: chain.id, name: chain.name, isStellar: false }
 }
 
 type NetworkModeSwitcherProps = {
@@ -32,8 +44,10 @@ type NetworkModeSwitcherProps = {
  * Stellar mode stores preference only (no EIP-155 chain switch).
  */
 export default function NetworkModeSwitcher({ className, compact }: NetworkModeSwitcherProps) {
+  const dispatch = useAppDispatch()
   const { wallet, isConnected } = useActiveWallet()
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
+  const walletConnector = useAppSelector((s) => s.wallet.connector)
   const [switching, setSwitching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [preferred, setPreferred] = useState<PreferredNetwork>(() => readPreferredAppNetwork())
@@ -54,12 +68,21 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
       if (switching) return
       if (isLocalOnlyDeployMode()) return
       setError(null)
+      const prev = readPreferredAppNetwork()
       writePreferredAppNetwork(choice)
       setPreferred(choice)
 
       if (choice === 'stellar-testnet') {
-        // Stellar session — no EIP-155 wallet_switchEthereumChain
+        // Leaving EVM adapter ownership — Stellar Wallet Kit is the only connector.
+        if (walletConnector === 'evm' || (!walletConnector && isConnected)) {
+          dispatch(resetWallet())
+        }
         return
+      }
+
+      if (prev === 'stellar-testnet' || walletConnector === 'stellar') {
+        await disconnectStellarWalletKit()
+        dispatch(resetWallet())
       }
 
       const target = choice === 'mainnet' ? MAINNET_CHAIN : TESTNET_CHAIN
@@ -75,7 +98,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
         setSwitching(false)
       }
     },
-    [switching, isConnected, wallet, walletChainId],
+    [switching, isConnected, wallet, walletChainId, walletConnector, dispatch],
   )
 
   if (isLocalOnlyDeployMode()) return null
@@ -119,7 +142,7 @@ export default function NetworkModeSwitcher({ className, compact }: NetworkModeS
           onClick={() => void select('stellar-testnet')}
           className={`${btnBase} rounded-[6px] ${active === 'stellar-testnet' ? activeBtn : idleBtn}`}
         >
-          Stellar
+          Stellar Testnet
         </button>
       </div>
       {error ? (

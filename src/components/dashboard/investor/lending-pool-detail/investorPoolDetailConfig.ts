@@ -8,11 +8,11 @@ const FIST_COMMERCE: InvestorPoolDetailConfig = {
     showUnreadNotification: true,
   },
   headerStats: [
-    { label: 'Total Deposited', value: '$340K' },
-    { label: 'Liquid Asset', value: '$120K' },
-    { label: 'Maximum loan', value: '$120K' },
-    { label: 'Loan Interest', value: '6-8%' },
-    { label: 'Target Repayment Duration', value: '30-90 Days' },
+    { label: 'Total Deposited', value: '—' },
+    { label: 'Liquid Asset', value: '—' },
+    { label: 'Maximum loan', value: '—' },
+    { label: 'Loan Interest', value: '—' },
+    { label: 'Target Repayment Duration', value: '—' },
   ],
   myStats: [
     { label: 'Invested', value: '$20K' },

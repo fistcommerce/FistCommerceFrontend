@@ -18,7 +18,11 @@ import { InvestmentStep } from '@/components/dashboard/investor/invest/types'
 import { DashboardRequestFeedbackLayer } from '@/components/dashboard/shared/DashboardRequestFeedbackLayer'
 import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
 import { useInvestorOnChainBalances } from '@/hooks/useInvestorOnChainBalances'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
+import { useWallet } from '@/hooks/useWallet'
+import { STELLAR_TESTNET_LABEL } from '@/stellar/chain'
+import { depositToTradeCreditPool } from '@/stellar/poolWrites'
 import { useAppSelector } from '@/store/hooks'
 import { selectInvestorPoolAndMetrics } from '@/store/selectors/investorDashboardSelectors'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
@@ -57,11 +61,20 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     investorMetrics,
   } = useAppSelector(selectInvestorPoolAndMetrics)
 
+  const stellarMode = useIsStellarTestnetMode()
+  const { address: stellarAddress } = useWallet()
   const contracts = useTestnetContracts({
     estimateDepositHumanAmount:
-      currentStep === InvestmentStep.InvestmentConfirmation ? displayAmount : undefined,
+      !stellarMode && currentStep === InvestmentStep.InvestmentConfirmation
+        ? displayAmount
+        : undefined,
   })
-  const { investmentBalanceDisplay, walletBalanceDisplay, walletBalanceHuman } = useInvestorOnChainBalances()
+  const {
+    investmentBalanceDisplay,
+    walletBalanceDisplay,
+    walletBalanceHuman,
+    stellar,
+  } = useInvestorOnChainBalances()
 
   const investQuickAmounts = useMemo(
     () => filterQuickAmountsByMax(INVEST_QUICK_AMOUNTS, walletBalanceHuman),
@@ -96,6 +109,10 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
   }
 
   const walletMockTokenLabel = useMemo(() => {
+    if (stellarMode) {
+      if (stellar.loading) return 'Loading FISTUSD balance…'
+      return `Wallet balance: ${walletBalanceDisplay} (${STELLAR_TESTNET_LABEL})`
+    }
     const networkName = getAppChainDisplayName(contracts.testnetChain.id)
     if (!contracts.isConnected) return `Connect your wallet to view token balance (${networkName}).`
     if (contracts.isContractsLoading) return 'Loading balance…'
@@ -104,6 +121,8 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     }
     return `Wallet balance: ${walletBalanceDisplay}`
   }, [
+    stellarMode,
+    stellar.loading,
     contracts.isConnected,
     contracts.isContractsLoading,
     contracts.isCorrectNetwork,
@@ -117,10 +136,12 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
       openFlowFailure(uiError, InvestmentStep.PoolSelection)
       return
     }
-    const gate = contracts.canDepositHuman(displayAmount)
-    if (!gate.ok) {
-      openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.PoolSelection)
-      return
+    if (!stellarMode) {
+      const gate = contracts.canDepositHuman(displayAmount)
+      if (!gate.ok) {
+        openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.PoolSelection)
+        return
+      }
     }
     setStep(InvestmentStep.InvestmentConfirmation)
   }
@@ -131,10 +152,12 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
       openFlowFailure(uiError, InvestmentStep.AmountEntry)
       return
     }
-    const gate = contracts.canDepositHuman(displayAmount)
-    if (!gate.ok) {
-      openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.AmountEntry)
-      return
+    if (!stellarMode) {
+      const gate = contracts.canDepositHuman(displayAmount)
+      if (!gate.ok) {
+        openFlowFailure(gate.message ?? 'Cannot continue', InvestmentStep.AmountEntry)
+        return
+      }
     }
     setStep(InvestmentStep.PoolSelection)
   }
@@ -148,7 +171,16 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
     setFeedbackPhase('loading')
     setFeedbackError(null)
     try {
-      await contracts.depositFundingPool(displayAmount)
+      if (stellarMode) {
+        if (!stellarAddress) throw new Error('Connect your Stellar wallet to deposit.')
+        await depositToTradeCreditPool({
+          investor: stellarAddress,
+          amountHuman: displayAmount,
+        })
+        stellar.refresh()
+      } else {
+        await contracts.depositFundingPool(displayAmount)
+      }
       setFeedbackPhase('idle')
       setStep(InvestmentStep.InvestmentCompleted)
     } catch (e) {
@@ -176,9 +208,11 @@ const InvestorInvestCard = ({ walletDisplay, step, onStepChange }: InvestorInves
               poolMetrics,
               investorMetrics,
               {
-                gasFeeEstimateDisplay: contracts.depositGasFeeLabel,
-                networkDisplayName: getAppChainDisplayName(contracts.testnetChain.id),
-                chainId: contracts.testnetChain.id,
+                gasFeeEstimateDisplay: stellarMode ? 'Soroban fees' : contracts.depositGasFeeLabel,
+                networkDisplayName: stellarMode
+                  ? STELLAR_TESTNET_LABEL
+                  : getAppChainDisplayName(contracts.testnetChain.id),
+                chainId: stellarMode ? 1_397_037_394 : contracts.testnetChain.id,
               },
             )}
             isSubmitting={investSubmitting || contracts.isWritePending}

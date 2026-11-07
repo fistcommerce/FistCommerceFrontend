@@ -1,3 +1,5 @@
+import { isStellarChainId, STELLAR_TESTNET_LABEL } from '@/stellar/chain'
+
 /** Deploy / session network mode derived from chain id or legacy env. */
 export type ContractNetworkMode = 'local' | 'testnet' | 'mainnet'
 
@@ -58,6 +60,7 @@ export function isMainnetContractNetwork(chainId?: number | null): boolean {
 }
 
 export function getContractNetworkLabel(chainId?: number | null): string {
+  if (isStellarChainId(chainId)) return STELLAR_TESTNET_LABEL
   const mode = chainId != null ? modeFromChainId(chainId) : getContractNetworkMode()
   switch (mode) {
     case 'local':
@@ -76,6 +79,7 @@ export function getContractNetworkLabel(chainId?: number | null): string {
  * Prefer passing `chainId` from the wallet / auth session when available.
  */
 export function getAppChainDisplayName(chainId?: number | null): string {
+  if (isStellarChainId(chainId)) return STELLAR_TESTNET_LABEL
   const mode = chainId != null ? modeFromChainId(chainId) : getContractNetworkMode()
   switch (mode) {
     case 'local':
@@ -91,6 +95,7 @@ export function getAppChainDisplayName(chainId?: number | null): string {
 
 /** Short badge label for session UI. */
 export function getNetworkSessionBadgeLabel(chainId: number | null | undefined): string | null {
+  if (isStellarChainId(chainId)) return 'Stellar'
   const mode = modeFromChainId(chainId)
   if (mode === 'mainnet') return 'Mainnet'
   if (mode === 'testnet') return 'Testnet'
@@ -127,7 +132,8 @@ export function getAcceptedTokenDefaultDecimals(chainId?: number | null): number
   return isMainnetContractNetwork(chainId) ? 6 : 18
 }
 
-/** Test-token mint / faucet is only available off mainnet. */
+/** Test-token mint / faucet is only available on EVM testnets (not mainnet or Stellar). */
 export function canMintTestTokens(chainId?: number | null): boolean {
+  if (isStellarChainId(chainId)) return false
   return !isMainnetContractNetwork(chainId)
 }

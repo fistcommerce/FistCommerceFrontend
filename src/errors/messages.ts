@@ -78,6 +78,33 @@ const MESSAGES: Record<AppErrorCode, string> = {
     'The cancel-funded transaction was submitted, but on-chain rejection is not confirmed yet. Status was left unchanged — verify the tx and retry if needed.',
   REPAYMENT_NOT_CONFIRMED_ON_CHAIN:
     'The repayment transaction was submitted, but on-chain repayment is not confirmed yet. Status was left unchanged — verify the tx and retry if needed.',
+  STELLAR_INVESTOR_NOT_APPROVED:
+    'This Stellar wallet is not approved to invest in the pool yet. Ask an admin to allowlist your address, then try again.',
+  STELLAR_UNAUTHORIZED:
+    'This Stellar wallet is not authorized for that contract action. Connect the correct account and try again.',
+  STELLAR_INVALID_AMOUNT: 'Enter a valid amount greater than zero and try again.',
+  STELLAR_OP_REUSED:
+    'This operation was already submitted. Wait a moment, refresh, and try again with a new request.',
+  STELLAR_RECEIVABLE_EXISTS: 'A receivable with this id already exists on Stellar. Use a new id.',
+  STELLAR_RECEIVABLE_NOT_FOUND: 'That receivable was not found on Stellar. Refresh and try again.',
+  STELLAR_INVALID_ECONOMICS:
+    'Loan amounts are invalid (repayment must be at least the advance). Check the amounts and try again.',
+  STELLAR_INVALID_STATUS:
+    'This receivable is not in the right status for that action. Refresh and try the next step.',
+  STELLAR_MATURITY_NOT_FUTURE: 'Maturity must be a future date. Update the maturity and try again.',
+  STELLAR_ATTESTATION_MISSING:
+    'Required attestations are missing. Complete merchant and document verification before funding.',
+  STELLAR_OVER_REPAYMENT:
+    'Repayment exceeds the remaining amount owed. Enter a smaller amount and try again.',
+  STELLAR_TRANSFER_FAILED:
+    'The FISTUSD transfer failed. Check your trustline and balance, then try again.',
+  STELLAR_NOT_INITIALIZED:
+    'The Stellar contract is not initialized. Contact support before retrying.',
+  STELLAR_ALREADY_INITIALIZED: 'The Stellar contract is already initialized.',
+  STELLAR_ISSUER_NOT_AUTHORIZED:
+    'This wallet is not authorized to issue attestations. Use the configured issuer wallet.',
+  STELLAR_CONTRACT_ERROR:
+    'The Stellar contract rejected this action. Try again or contact support.',
   UNKNOWN: 'Something went wrong. Please try again.',
 }
 

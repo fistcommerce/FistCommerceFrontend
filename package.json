@@ -9,14 +9,17 @@
     "serve": "serve -s dist -l 3000"
   },
   "dependencies": {
+    "@creit.tech/stellar-wallets-kit": "^2.8.0",
     "@didit-protocol/sdk-web": "^0.2.1",
     "@fontsource/outfit": "^5.2.8",
     "@privy-io/react-auth": "^3.22.1",
     "@reduxjs/toolkit": "^2.11.2",
+    "@stellar/stellar-sdk": "^14.6.1",
     "@tailwindcss/vite": "^4.2.2",
     "@tanstack/react-query": "latest",
     "@types/node": "^25.5.0",
     "@walletconnect/ethereum-provider": "^2.23.9",
+    "buffer": "^6.0.3",
     "clsx": "^2.1.1",
     "react": "latest",
     "react-dom": "latest",

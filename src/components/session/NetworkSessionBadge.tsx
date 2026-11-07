@@ -4,6 +4,7 @@ import {
   isMainnetContractNetwork,
   isTestnetContractNetwork,
 } from '@/contract_config/contractNetwork'
+import { isStellarChainId } from '@/stellar/chain'
 import { useAppSelector } from '@/store/hooks'
 
 /**
@@ -18,8 +19,9 @@ export default function NetworkSessionBadge() {
   const label = getNetworkSessionBadgeLabel(chainId)
   if (!label || chainId == null) return null
 
-  const isTestnet = isTestnetContractNetwork(chainId)
-  const isMainnet = isMainnetContractNetwork(chainId)
+  const isStellar = isStellarChainId(chainId)
+  const isTestnet = isStellar || isTestnetContractNetwork(chainId)
+  const isMainnet = !isStellar && isMainnetContractNetwork(chainId)
   const title = getContractNetworkLabel(chainId)
 
   return (

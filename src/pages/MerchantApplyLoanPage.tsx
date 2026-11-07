@@ -411,12 +411,21 @@ const MerchantApplyLoanPage = () => {
     }
 
     if (tiersError || riskTiers.length === 0) {
+      const detail =
+        tiersError instanceof Error && tiersError.message.trim()
+          ? tiersError.message.trim()
+          : 'Could not load loan durations for this network. Refresh and try again.'
       return (
         <select
           disabled
+          title={detail}
           className="mt-2 w-full border border-[#FECACA] rounded-[6px] px-4 py-2.5 text-[14px] bg-[#FEF2F2] text-[#B91C1C] cursor-not-allowed"
         >
-          <option>Risk tiers unavailable</option>
+          <option>
+            {tiersError
+              ? 'Risk tiers unavailable — check network / API'
+              : 'No risk tiers configured for this network'}
+          </option>
         </select>
       )
     }

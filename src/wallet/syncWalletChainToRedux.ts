@@ -32,9 +32,18 @@ export async function syncWalletChainIdFromProviderToRedux(
     const raw = await provider.request({ method: 'eth_chainId' })
     const n = parseEthChainId(raw)
     if (options?.isCancelled?.()) return
-    store.dispatch(setWalletFromProvider({ isConnected, address, chainId: n }))
+    store.dispatch(
+      setWalletFromProvider({ isConnected, address, chainId: n, connector: 'evm' }),
+    )
   } catch {
     if (options?.isCancelled?.()) return
-    store.dispatch(setWalletFromProvider({ isConnected, address, chainId: undefined }))
+    store.dispatch(
+      setWalletFromProvider({
+        isConnected,
+        address,
+        chainId: undefined,
+        connector: isConnected ? 'evm' : null,
+      }),
+    )
   }
 }

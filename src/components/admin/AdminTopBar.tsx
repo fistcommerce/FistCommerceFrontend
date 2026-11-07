@@ -1,4 +1,3 @@
-import arbitrumLogo from '@/assets/arbitrum_icon.jpeg.png'
 import logo from '@/assets/logo.png'
 import mobileHamburgerIcon from '@/assets/mobile-hamburger.png'
 import mobileUserIcon from '@/assets/mobile-user.png'
@@ -73,7 +72,7 @@ const AdminTopBar = ({
                 {walletDisplay}
               </span>
               <span className="h-5 w-px shrink-0 bg-[#E6E8EC]" aria-hidden />
-              <img src={arbitrumLogo} alt="" className="h-5 w-5 shrink-0 object-contain" />
+              <span className="text-[#4D5D80] shrink-0 whitespace-nowrap">{networkLabel}</span>
             </div>
           ) : (
             <button

@@ -1,3 +1,6 @@
+import './polyfills'
+import '@/polyfills/buffer'
+
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { PrivyProvider, type PrivyClientConfig } from '@privy-io/react-auth'
 import React from 'react'

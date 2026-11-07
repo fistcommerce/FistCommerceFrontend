@@ -7,11 +7,11 @@ import AdminTopBar from '@/components/admin/AdminTopBar'
 import DashboardErrorModal from '@/components/dashboard/shared/DashboardErrorModal'
 import { getAppChainDisplayName } from '@/contract_config/contractNetwork'
 import SorobanBanner from '@/stellar/SorobanBanner'
-import SorobanDemoPanel from '@/stellar/SorobanDemoPanel'
 import { useIsSorobanMode } from '@/hooks/useNetworkCapability'
 import { useConnectWalletAction } from '@/hooks/useConnectWalletAction'
 import { useWallet } from '@/hooks/useWallet'
 import { useAppSelector } from '@/store/hooks'
+import { STELLAR_TESTNET_LABEL } from '@/stellar/chain'
 import { AdminMerchantProfileBreadcrumb } from '@/components/admin/merchants'
 import {
   AdminInvestorActivityDetailBreadcrumb,
@@ -94,7 +94,6 @@ const AdminDashboardLayout = () => {
   const { shortAddress } = useWallet()
   const walletChainId = useAppSelector((s) => s.wallet.chainId)
   const authChainId = useAppSelector((s) => s.auth.chainId)
-  const networkDisplayName = getAppChainDisplayName(walletChainId ?? authChainId)
   const {
     connect: connectWallet,
     pending: connectWalletPending,
@@ -103,6 +102,9 @@ const AdminDashboardLayout = () => {
   } = useConnectWalletAction()
 
   const sorobanMode = useIsSorobanMode()
+  const networkDisplayName = sorobanMode
+    ? STELLAR_TESTNET_LABEL
+    : getAppChainDisplayName(walletChainId ?? authChainId)
 
   return (
     <main className="h-dvh w-full bg-[#EEF0F4] flex overflow-hidden">
@@ -141,7 +143,7 @@ const AdminDashboardLayout = () => {
           title={pageTitle}
           leading={topBarLeading}
           walletDisplay={shortAddress ?? undefined}
-          networkDisplayName={sorobanMode ? 'Stellar Testnet' : networkDisplayName}
+          networkDisplayName={networkDisplayName}
           onConnectWallet={() => void connectWallet()}
           connectWalletPending={connectWalletPending}
           onMenuClick={() => setMobileNavOpen((v) => !v)}
@@ -155,7 +157,6 @@ const AdminDashboardLayout = () => {
         )}
 
         <div data-dashboard-scroll className="px-4 sm:px-6 lg:px-8 py-6 overflow-y-auto flex-1 min-h-0">
-          {sorobanMode ? <SorobanDemoPanel /> : null}
           <Outlet />
         </div>
       </div>

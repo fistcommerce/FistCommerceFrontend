@@ -8,13 +8,21 @@ import { createWalletLoginSignable } from '@/api/walletSession'
 import privyIcon from '@/assets/Icon (1).png'
 import { AdminLoginFeedbackModal } from '@/components/admin/AdminLoginFeedbackModal'
 import AdminLoginGuard from '@/components/session/AdminLoginGuard'
-import NetworkModeSwitcher, { selectedNetworkChain } from '@/components/session/NetworkModeSwitcher'
+import NetworkModeSwitcher, { selectedLoginNetwork, selectedNetworkChain } from '@/components/session/NetworkModeSwitcher'
 import { ADMIN_DASHBOARD_OVERVIEW_PATH } from '@/auth/adminSession'
 import { toAppUserFacingError } from '@/errors/toAppUserFacingError'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
 import { consumeSessionEndMessage } from '@/session/sessionEnd'
-import { useAppDispatch } from '@/store/hooks'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
 import { persistor } from '@/store'
 import { patchAuth } from '@/store/slices/authSlice'
+import { resetWallet, setWalletFromProvider } from '@/store/slices/walletSlice'
+import { STELLAR_TESTNET_CHAIN_ID } from '@/stellar/chain'
+import {
+  connectStellarWalletViaKit,
+  disconnectStellarWalletKit,
+  signStellarLoginMessage,
+} from '@/stellar/walletsKit'
 import { useActiveWallet } from '@/wallet/useActiveWallet'
 import { getAppChainById } from '@/wallet/appChain'
 import { isUserRejectedWalletRequest } from '@/wallet/walletChainErrors'
@@ -25,13 +33,9 @@ function truncateAddress(address: string) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
 }
 
-function isWalletSignRejected(e: unknown): boolean {
-  return isUserRejectedWalletRequest(e)
-}
-
 function formatAdminLoginError(err: unknown): string {
   if (err instanceof ApiRequestError && err.status === 401) {
-    return 'This wallet is not authorized as a multisig owner, or the signature was invalid. Connect with a multisig owner wallet and try again.'
+    return 'This wallet is not authorized as an admin signer, or the signature was invalid. Connect with an authorized admin wallet and try again.'
   }
   return toAppUserFacingError(err, {
     fallback: 'Could not sign in. Please try again.',
@@ -42,11 +46,32 @@ function formatAdminLoginError(err: unknown): string {
 const AdminLoginPage = () => {
   const dispatch = useAppDispatch()
   const navigate = useNavigate()
+  const stellarMode = useIsStellarTestnetMode()
+  const loginNetwork = selectedLoginNetwork()
   const { ready: privyReady, login, connectWallet } = usePrivy()
-  const { wallet, address, isConnected, walletClientType, ready: walletsReady, setActiveWalletId } =
-    useActiveWallet()
+  const {
+    wallet,
+    address: evmAddress,
+    isConnected: evmConnected,
+    walletClientType,
+    ready: walletsReady,
+    setActiveWalletId,
+  } = useActiveWallet()
+  const reduxAddress = useAppSelector((s) => s.wallet.address)
+  const reduxConnected = useAppSelector((s) => s.wallet.isConnected)
+  const reduxConnector = useAppSelector((s) => s.wallet.connector)
+
+  const address = stellarMode
+    ? reduxConnector === 'stellar'
+      ? reduxAddress
+      : null
+    : evmAddress
+  const isConnected = stellarMode
+    ? Boolean(reduxConnector === 'stellar' && reduxConnected && reduxAddress)
+    : evmConnected
 
   const [connecting, setConnecting] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
   const [authInFlight, setAuthInFlight] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
@@ -97,6 +122,58 @@ const AdminLoginPage = () => {
     }
   }
 
+  const handleConnectStellarWallet = async () => {
+    setErrorMessage(null)
+    setConnecting(true)
+    try {
+      // Always disconnect kit session first so the modal can pick another wallet/account.
+      dispatch(resetWallet())
+      const { address: stellarAddress } = await connectStellarWalletViaKit({ forceReselect: true })
+      dispatch(
+        setWalletFromProvider({
+          isConnected: true,
+          address: stellarAddress,
+          chainId: STELLAR_TESTNET_CHAIN_ID,
+          connector: 'stellar',
+        }),
+      )
+      setActiveWalletId(stellarAddress)
+    } catch (e) {
+      setErrorMessage(
+        toAppUserFacingError(e, {
+          fallback: 'Could not connect Stellar wallet.',
+          context: 'onboarding',
+        }),
+      )
+      console.error(e)
+    } finally {
+      setConnecting(false)
+    }
+  }
+
+  const handleDisconnectWallet = async () => {
+    setErrorMessage(null)
+    setDisconnecting(true)
+    try {
+      setActiveWalletId(null)
+      dispatch(resetWallet())
+      if (stellarMode || reduxConnector === 'stellar') {
+        await disconnectStellarWalletKit()
+      }
+      await persistor.flush()
+    } catch (e) {
+      setErrorMessage(
+        toAppUserFacingError(e, {
+          fallback: 'Could not disconnect wallet.',
+          context: 'onboarding',
+        }),
+      )
+      console.error(e)
+    } finally {
+      setDisconnecting(false)
+    }
+  }
+
   const handleSignIn = async () => {
     if (!getApiBaseUrl()) {
       setErrorMessage(
@@ -105,16 +182,69 @@ const AdminLoginPage = () => {
       return
     }
 
-    if (!walletsReady) return
-
-    if (!wallet || !address) {
-      setErrorMessage('Connect a wallet first (embedded or external) to sign in.')
+    if (!isConnected || !address) {
+      setErrorMessage(
+        stellarMode
+          ? 'Connect a Stellar wallet first (Varial/Freighter or Albedo) to sign in.'
+          : 'Connect a wallet first (embedded or external) to sign in.',
+      )
       return
     }
 
     setErrorMessage(null)
     setAuthInFlight(true)
     try {
+      if (stellarMode) {
+        const signable = createWalletLoginSignable(STELLAR_TESTNET_CHAIN_ID, address)
+        const { signature } = await signStellarLoginMessage({
+          wallet: address,
+          issuedAt: signable.signedMessageForApi.issuedAt,
+          action: signable.signedMessageForApi.action,
+          nonce: signable.signedMessageForApi.nonce,
+          chainId: STELLAR_TESTNET_CHAIN_ID,
+        })
+
+        const result = await postAdminWalletLogin({
+          signedMessage: signable.signedMessageForApi,
+          signature,
+          signerAddress: address,
+          chainId: STELLAR_TESTNET_CHAIN_ID,
+        })
+
+        const sessionWallet = result.wallet ?? address
+        dispatch(
+          patchAuth({
+            onboarded: true,
+            accessToken: result.accessToken,
+            refreshToken: result.refreshToken,
+            role: null,
+            sessionKind: 'admin',
+            sessionExpired: false,
+            sessionExpiredReason: null,
+            user: { id: sessionWallet },
+            chainId: result.chainId ?? STELLAR_TESTNET_CHAIN_ID,
+            wallet: sessionWallet,
+          }),
+        )
+        dispatch(
+          setWalletFromProvider({
+            isConnected: true,
+            address: sessionWallet,
+            chainId: STELLAR_TESTNET_CHAIN_ID,
+            connector: 'stellar',
+          }),
+        )
+        setActiveWalletId(sessionWallet)
+        await persistor.flush()
+        navigate(ADMIN_DASHBOARD_OVERVIEW_PATH, { replace: true })
+        return
+      }
+
+      if (!walletsReady || !wallet) {
+        setErrorMessage('Connect a wallet first (embedded or external) to sign in.')
+        return
+      }
+
       const loginChain = selectedNetworkChain()
       try {
         await ensureWalletChain(wallet, loginChain.id)
@@ -168,7 +298,7 @@ const AdminLoginPage = () => {
       await persistor.flush()
       navigate(ADMIN_DASHBOARD_OVERVIEW_PATH, { replace: true })
     } catch (e) {
-      if (isWalletSignRejected(e)) {
+      if (isUserRejectedWalletRequest(e)) {
         setErrorMessage('Signature was cancelled. Please try again when you are ready to sign in.')
       } else {
         setErrorMessage(formatAdminLoginError(e))
@@ -179,7 +309,10 @@ const AdminLoginPage = () => {
     }
   }
 
-  const busy = connecting || authInFlight
+  const busy = connecting || disconnecting || authInFlight
+  const signInDisabled = stellarMode
+    ? !isConnected || busy
+    : !isConnected || !walletsReady || busy
 
   return (
     <div className="relative flex min-h-dvh w-full items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
@@ -206,53 +339,83 @@ const AdminLoginPage = () => {
           Sign In
         </h1>
         <p className="mt-3 text-center text-[15px] leading-relaxed text-[#6B7280] sm:text-base">
-          Connect your multisig owner wallet to monitor, manage, and control platform operations.
-          Use the Testnet / Mainnet control at the top right before signing in.
+          Connect your admin wallet to monitor, manage, and control platform operations. Use the
+          Testnet / Mainnet / Stellar control at the top right before signing in.
         </p>
 
         {isConnected && address ? (
-          <p className="mt-8 text-center text-[14px] text-[#195EBC] font-medium" aria-live="polite">
-            Connected: <span className="font-mono">{truncateAddress(address)}</span>
-            {walletClientType ? <span className="ml-2 text-[#6B7280]">({walletClientType})</span> : null}
-          </p>
+          <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-center text-[14px] text-[#195EBC] font-medium sm:text-left" aria-live="polite">
+              Connected: <span className="font-mono">{truncateAddress(address)}</span>
+              {stellarMode ? (
+                <span className="ml-2 text-[#6B7280]">(stellar)</span>
+              ) : walletClientType ? (
+                <span className="ml-2 text-[#6B7280]">({walletClientType})</span>
+              ) : null}
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleDisconnectWallet()}
+              disabled={busy}
+              className="text-[14px] font-medium text-[#6B7280] underline underline-offset-2 hover:text-[#374151] disabled:opacity-60 self-center sm:self-auto"
+            >
+              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </div>
         ) : null}
 
         <div className="mt-8 flex flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => void handlePrivyLogin()}
-            disabled={busy || !privyReady}
-            className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
-          >
-            <div className="flex items-center gap-3 min-w-0">
-              <img src={privyIcon} alt="" className="inline-block w-[22px] h-[22px]" />
-              <span className="text-[#2B2F36] font-semibold truncate">Continue with Google or email</span>
-            </div>
-            <span className="text-[14px] text-[#6B7280] shrink-0">
-              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Login'}
-            </span>
-          </button>
+          {stellarMode ? (
+            <button
+              type="button"
+              onClick={() => void handleConnectStellarWallet()}
+              disabled={busy}
+              className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
+            >
+              <span className="text-[#2B2F36] font-semibold truncate">Connect Stellar wallet</span>
+              <span className="text-[14px] text-[#6B7280] shrink-0">
+                {connecting ? 'Opening…' : isConnected ? 'Switch' : 'Connect'}
+              </span>
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => void handlePrivyLogin()}
+                disabled={busy || !privyReady}
+                className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <img src={privyIcon} alt="" className="inline-block w-[22px] h-[22px]" />
+                  <span className="text-[#2B2F36] font-semibold truncate">Continue with Google or email</span>
+                </div>
+                <span className="text-[14px] text-[#6B7280] shrink-0">
+                  {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Login'}
+                </span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => void handleConnectExternalWallet()}
-            disabled={busy || !privyReady}
-            className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
-          >
-            <span className="text-[#2B2F36] font-semibold truncate">Connect external wallet</span>
-            <span className="text-[14px] text-[#6B7280] shrink-0">
-              {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Connect'}
-            </span>
-          </button>
+              <button
+                type="button"
+                onClick={() => void handleConnectExternalWallet()}
+                disabled={busy || !privyReady}
+                className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-white px-5 py-4 text-left transition-[box-shadow,border-color] hover:bg-[#F9FAFB] focus:border-[#1D61C1]/50 focus:ring-2 focus:ring-[#1D61C1]/25 disabled:opacity-60 sm:rounded-2xl"
+              >
+                <span className="text-[#2B2F36] font-semibold truncate">Connect external wallet</span>
+                <span className="text-[14px] text-[#6B7280] shrink-0">
+                  {!privyReady ? 'Loading…' : connecting ? 'Opening…' : 'Connect'}
+                </span>
+              </button>
+            </>
+          )}
         </div>
 
         <button
           type="button"
           onClick={() => void handleSignIn()}
-          disabled={!isConnected || !walletsReady || busy}
+          disabled={signInDisabled}
           className="mt-8 w-full rounded-xl bg-[#1D61C1] py-4 text-base font-semibold text-white shadow-md shadow-[#1D61C1]/25 transition-[background-color,transform,box-shadow] hover:bg-[#1955AD] hover:shadow-lg hover:shadow-[#1D61C1]/30 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed sm:rounded-2xl sm:py-4.5"
         >
-          {authInFlight ? 'Signing in…' : 'Sign In'}
+          {authInFlight ? 'Signing in…' : `Sign In on ${loginNetwork.name}`}
         </button>
       </div>
 

@@ -30,24 +30,16 @@ function actionLabel(loading: boolean, kind: AdminLoanMonitoringActionKind | nul
   return label
 }
 
-type PayoutReadiness = {
-  ready: boolean
-  failures: { code: string; message: string }[]
-} | null
-
 type AdminLoanMonitoringDetailViewProps = {
   detail: LoanMonitoringDetailView
   onBack: () => void
   onApprove: () => void
   onReject: () => void
   onApproveFunding: () => void
-  onCancelFunding: () => void
-  onInitiatePayout: () => void
   onMarkDefaulted: () => void
   onWriteOffShortfall: () => void
   actionLoading: boolean
   actionKind: AdminLoanMonitoringActionKind | null
-  payoutReadiness?: PayoutReadiness
 }
 
 export function AdminLoanMonitoringDetailView({
@@ -56,13 +48,10 @@ export function AdminLoanMonitoringDetailView({
   onApprove,
   onReject,
   onApproveFunding,
-  onCancelFunding,
-  onInitiatePayout,
   onMarkDefaulted,
   onWriteOffShortfall,
   actionLoading,
   actionKind,
-  payoutReadiness = null,
 }: AdminLoanMonitoringDetailViewProps) {
   const {
     receivableName,
@@ -73,11 +62,9 @@ export function AdminLoanMonitoringDetailView({
     lifecycleStage,
     repaymentRows,
     maturityBanner,
-    receivableId,
     admin,
     defaultManagement,
     showFundingApprovalSection,
-    showFundingPayoutSection,
     fundingApprovalDone,
     isPaidOut,
     canApproveFunding,
@@ -115,16 +102,6 @@ export function AdminLoanMonitoringDetailView({
   const canReject = admin.canReject && !actionLoading
   const canApprove = admin.canApprove && !actionLoading
   const canFundNow = canApproveFunding && !actionLoading
-  const evidenceReady = payoutReadiness == null || payoutReadiness.ready
-  const canPayoutNow =
-    Boolean(receivableId?.trim()) &&
-    fundingApprovalDone &&
-    !isPaidOut &&
-    !actionLoading &&
-    evidenceReady
-  // Cancel stays available until funds are released (does not require evidence checklist).
-  const canCancelFundingNow =
-    Boolean(receivableId?.trim()) && fundingApprovalDone && !isPaidOut && !actionLoading
   const showLoanAcceptance = admin.canApprove || admin.canReject
   const canMarkDefaulted =
     admin.canMarkDefaulted && defaultManagement.canMarkDefaulted && !actionLoading
@@ -260,54 +237,6 @@ export function AdminLoanMonitoringDetailView({
           {!fundingApprovalDone && !canFundNow ? (
             <p className="mt-3 text-[#8B92A3] text-[13px] leading-relaxed">
               Available after loan acceptance when the receivable is verified on-chain.
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
-      {showFundingPayoutSection ? (
-        <section
-          id="loan-funding-payout-section"
-          className="rounded-[12px] border border-[#E6E8EC] bg-white p-6 lg:p-8 shadow-sm"
-        >
-          <h2 className="text-[#0B1220] font-bold text-[18px] mb-2">Funding payout</h2>
-          <p className="text-[#6B7488] text-[14px] mb-5">
-            Release funds to the merchant wallet, or cancel funding to return capital to the pool.
-          </p>
-          {isPaidOut ? (
-            <p className="text-[#16A34A] text-[14px] font-medium">Funds released to merchant</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <button
-                type="button"
-                disabled={!canCancelFundingNow}
-                onClick={onCancelFunding}
-                className={actionButtonClass(canCancelFundingNow, 'danger')}
-              >
-                {actionLabel(actionLoading, actionKind, 'cancelFunding', 'Cancel funding')}
-              </button>
-              <button
-                type="button"
-                disabled={!canPayoutNow}
-                onClick={onInitiatePayout}
-                className={actionButtonClass(canPayoutNow, 'primary')}
-              >
-                {actionLabel(actionLoading, actionKind, 'initiatePayout', 'Release funds')}
-              </button>
-            </div>
-          )}
-          {!isPaidOut && payoutReadiness && !payoutReadiness.ready ? (
-            <ul className="mt-3 list-disc pl-5 text-[#92400E] text-[13px] space-y-1">
-              {payoutReadiness.failures.map((f) => (
-                <li key={f.code}>{f.message}</li>
-              ))}
-            </ul>
-          ) : null}
-          {!isPaidOut && !canPayoutNow && !canCancelFundingNow ? (
-            <p className="mt-3 text-[#8B92A3] text-[13px] leading-relaxed">
-              {fundingApprovalDone
-                ? 'Add the on-chain receivable id to manage payout.'
-                : 'Complete funding approval first.'}
             </p>
           ) : null}
         </section>

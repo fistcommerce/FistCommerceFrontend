@@ -10,7 +10,14 @@ import {
   PrivilegedActionFeedbackLayer,
   type PrivilegedActionPhase,
 } from '@/admin/governance/PrivilegedActionFeedbackLayer'
-import { canUserExecuteGovernanceProposal, canUserSignGovernanceProposal, hasGovernanceSignature, sessionWalletMatchesConnected } from '@/admin/governance/governanceSigner'
+import {
+  canUserExecuteGovernanceProposal,
+  canUserSignGovernanceProposal,
+  hasGovernanceSignature,
+  resolveGovernanceActorAddress,
+  sessionWalletMatchesConnected,
+} from '@/admin/governance/governanceSigner'
+import { isStellarChainId } from '@/stellar/chain'
 import {
   formatSignerMgmtCallContent,
   formatSignerMgmtDecodedArgs,
@@ -56,7 +63,25 @@ function nonceBannerClass(status: NonceStatus): string {
   }
 }
 
-function NonceStatusBanner({ nonce }: { nonce: ProposalNonceInfo }) {
+function NonceStatusBanner({
+  nonce,
+  isSoroban = false,
+}: {
+  nonce: ProposalNonceInfo
+  isSoroban?: boolean
+}) {
+  if (isSoroban) {
+    return (
+      <div className={`rounded-[8px] border px-4 py-3 text-[13px] ${nonceBannerClass('current')}`}>
+        <p className="font-semibold">Stellar FistMultisig (1-of-1)</p>
+        <p className="mt-1">
+          Sign with the admin owner wallet to confirm, then execute. No ERC-4337 UserOp or reserved
+          nonce — the backend relays FistMultisig.confirm + execute.
+        </p>
+      </div>
+    )
+  }
+
   const title =
     nonce.nonceStatus === 'stale'
       ? 'Nonce bypassed — restart signatures'
@@ -139,7 +164,7 @@ const AdminGovernanceProposalDetailPage = () => {
   const detail = useAppSelector((s) =>
     proposalId ? selectMultisigProposalDetail(s.adminMultisig, proposalId) : null,
   )
-  const { address, isConnected } = useActiveWallet()
+  const { address } = useActiveWallet()
   const {
     confirmNonceWarning,
     confirmQueueJumpFromApiError,
@@ -215,9 +240,30 @@ const AdminGovernanceProposalDetailPage = () => {
     return () => window.clearInterval(id)
   }, [dispatch, proposalId, accessToken, sessionKind, shouldPollDetail, detailPollMs])
 
+  const isSorobanProposal = useMemo(() => {
+    if (config?.vm === 'soroban') return true
+    if (isStellarChainId(config?.chainId)) return true
+    const first = detail?.calls?.[0] as { stellar?: { vm?: string } } | undefined
+    return first?.stellar?.vm === 'soroban'
+  }, [config?.vm, config?.chainId, detail?.calls])
+
+  const actorAddress = useMemo(
+    () =>
+      resolveGovernanceActorAddress({
+        connectedAddress: address,
+        sessionWallet,
+        allowSessionWalletFallback: isSorobanProposal,
+      }),
+    [address, sessionWallet, isSorobanProposal],
+  )
+
   const isSigner = useMemo(
-    () => Boolean(address && (config?.signers ?? []).some((s) => s.toLowerCase() === address.toLowerCase())),
-    [address, config?.signers],
+    () =>
+      Boolean(
+        actorAddress &&
+          (config?.signers ?? []).some((s) => s.toLowerCase() === actorAddress.toLowerCase()),
+      ),
+    [actorAddress, config?.signers],
   )
 
   const handleSign = useCallback(async () => {
@@ -470,20 +516,25 @@ const AdminGovernanceProposalDetailPage = () => {
   const executeTxUrl =
     explorerBase && executeTxHash ? blockExplorerTxUrl(explorerBase, executeTxHash) : null
 
-  const sessionMatchesWallet = sessionWalletMatchesConnected(sessionWallet, address)
+  const sessionMatchesWallet = isSorobanProposal
+    ? Boolean(actorAddress)
+    : sessionWalletMatchesConnected(sessionWallet, address)
 
   const alreadySigned = useMemo(() => {
-    if (!address || !detail?.signatures?.length) return false
+    if (!actorAddress || !detail?.signatures?.length) return false
     return hasGovernanceSignature(
-      address,
+      actorAddress,
       detail.signatures.map((s) => s.signerAddress),
     )
-  }, [address, detail?.signatures])
+  }, [actorAddress, detail?.signatures])
 
   const nonceInfo = detail?.nonce
   const isTerminal = detail ? isTerminalGovernanceProposalStatus(detail.status) : false
-  const isNonceStale = !isTerminal && nonceInfo?.nonceStatus === 'stale'
-  const showNonceBanner = Boolean(nonceInfo) && !isTerminal
+  const isNonceStale = !isSorobanProposal && !isTerminal && nonceInfo?.nonceStatus === 'stale'
+  const showNonceBanner =
+    (isSorobanProposal && !isTerminal) || (Boolean(nonceInfo) && !isTerminal)
+
+  const actorConnected = Boolean(actorAddress)
 
   const canSign = useMemo(
     () =>
@@ -492,10 +543,10 @@ const AdminGovernanceProposalDetailPage = () => {
       canUserSignGovernanceProposal({
         status: detail!.status,
         missingSigners: detail!.missingSigners,
-        walletAddress: address,
+        walletAddress: actorAddress,
         multisigSigners: config?.signers ?? [],
         signedAddresses: detail!.signatures.map((s) => s.signerAddress),
-        isConnected,
+        isConnected: actorConnected,
       }) &&
       sessionMatchesWallet &&
       !signPending &&
@@ -505,9 +556,9 @@ const AdminGovernanceProposalDetailPage = () => {
     [
       detail,
       isNonceStale,
-      address,
+      actorAddress,
+      actorConnected,
       config?.signers,
-      isConnected,
       sessionMatchesWallet,
       signPending,
       executePending,
@@ -520,14 +571,16 @@ const AdminGovernanceProposalDetailPage = () => {
     () =>
       Boolean(detail) &&
       !isNonceStale &&
-      (nonceInfo?.canExecute ?? Boolean(detail!.readyToExecute)) &&
+      (isSorobanProposal
+        ? Boolean(detail!.readyToExecute)
+        : (nonceInfo?.canExecute ?? Boolean(detail!.readyToExecute))) &&
       canUserExecuteGovernanceProposal({
         readyToExecute: Boolean(detail!.readyToExecute),
         status: detail!.status,
-        walletAddress: address,
+        walletAddress: actorAddress,
         multisigSigners: config?.signers ?? [],
-        sessionWallet,
-        isConnected,
+        sessionWallet: isSorobanProposal ? undefined : sessionWallet,
+        isConnected: actorConnected,
       }) &&
       !signPending &&
       !executePending &&
@@ -536,11 +589,12 @@ const AdminGovernanceProposalDetailPage = () => {
     [
       detail,
       isNonceStale,
+      isSorobanProposal,
       nonceInfo,
-      address,
+      actorAddress,
+      actorConnected,
       config?.signers,
       sessionWallet,
-      isConnected,
       signPending,
       executePending,
       anyConfirmOpen,
@@ -616,7 +670,24 @@ const AdminGovernanceProposalDetailPage = () => {
                 </AdminStatusPill>
               </div>
 
-              {showNonceBanner && nonceInfo ? <NonceStatusBanner nonce={nonceInfo} /> : null}
+              {showNonceBanner && (isSorobanProposal || nonceInfo) ? (
+                <NonceStatusBanner
+                  nonce={
+                    nonceInfo ?? {
+                      reservedNonce: null,
+                      frozenNonce: null,
+                      liveNonce: 0,
+                      nonceStatus: 'current',
+                      queueSeq: null,
+                      canExecute: true,
+                      canRestartSignatures: false,
+                      blockingProposalIds: [],
+                      restartCount: 0,
+                    }
+                  }
+                  isSoroban={isSorobanProposal}
+                />
+              ) : null}
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-[14px]">
                 <div>
@@ -790,9 +861,11 @@ const AdminGovernanceProposalDetailPage = () => {
             {signingNote ? (
               <p className="px-5 pb-2 text-[#6B7488] text-[13px]">{signingNote}</p>
             ) : null}
-            {!isConnected ? (
+            {!actorConnected ? (
               <p className="px-5 pb-4 text-[#6B7488] text-[13px]">
-                Connect your owner wallet in the top bar to sign this proposal.
+                {isSorobanProposal
+                  ? 'Sign in as the Stellar admin owner (Freighter) to sign this proposal.'
+                  : 'Connect your owner wallet in the top bar to sign this proposal.'}
               </p>
             ) : !sessionMatchesWallet ? (
               <p className="px-5 pb-4 text-[#92400E] text-[13px]">
@@ -800,7 +873,9 @@ const AdminGovernanceProposalDetailPage = () => {
               </p>
             ) : !isSigner ? (
               <p className="px-5 pb-4 text-[#6B7488] text-[13px]">
-                Connected wallet is not a multisig signer for this deployment.
+                {isSorobanProposal
+                  ? 'Logged-in Stellar wallet is not a FistMultisig owner for this deployment.'
+                  : 'Connected wallet is not a multisig signer for this deployment.'}
               </p>
             ) : isNonceStale ? (
               <p className="px-5 pb-4 text-[#92400E] text-[13px]">

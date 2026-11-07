@@ -14,6 +14,8 @@ import {
   useMerchantRepayLoanContext,
   type MerchantRepayLocationState,
 } from '@/hooks/useMerchantRepayLoanContext'
+import { useIsStellarTestnetMode } from '@/hooks/usePreferredAppNetwork'
+import { useStellarBalances } from '@/hooks/useStellarBalances'
 import { useTestnetContracts } from '@/hooks/useTestnetContracts'
 import { useTokenBalanceLabel } from '@/hooks/useTokenBalanceLabel'
 import { useWallet } from '@/hooks/useWallet'
@@ -30,7 +32,9 @@ const MerchantRepayLoanPage = () => {
   const location = useLocation()
   const repayContext = useMerchantRepayLoanContext(receivableId)
   const locationState = (location.state ?? {}) as MerchantRepayLocationState
-  const { shortAddress, address } = useWallet()
+  const stellarMode = useIsStellarTestnetMode()
+  const { shortAddress, address, isConnected } = useWallet()
+  const stellarBalances = useStellarBalances()
   const contracts = useTestnetContracts()
   const walletTokenBalanceLabel = useTokenBalanceLabel('repay')
 
@@ -63,6 +67,34 @@ const MerchantRepayLoanPage = () => {
       setValidationError(owedError)
       return
     }
+
+    if (stellarMode) {
+      if (!isConnected || !address) {
+        setValidationError('Connect your Stellar wallet to continue.')
+        return
+      }
+      if (!repayContext.canRepayOnChain) {
+        setValidationError(MERCHANT_REPAY_ON_CHAIN_UNAVAILABLE)
+        return
+      }
+      const walletBal = stellarBalances.walletBalanceHuman
+      if (walletBal != null && amount > walletBal) {
+        setValidationError(
+          `Insufficient FISTUSD balance. You have ${stellarBalances.walletBalanceDisplay} but need at least $${amount.toLocaleString('en-US', { maximumFractionDigits: 6 })}.`,
+        )
+        return
+      }
+      setValidationError(null)
+      navigate(paths.confirm, {
+        state: {
+          ...locationState,
+          receivableName: repayContext.receivableName,
+          paymentAmount: amount,
+        },
+      })
+      return
+    }
+
     const gate = contracts.canRepayReceivable(
       amount,
       repayContext.onChainReceivableId,
