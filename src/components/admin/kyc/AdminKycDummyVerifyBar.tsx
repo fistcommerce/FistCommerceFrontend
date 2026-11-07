@@ -148,8 +148,8 @@ export function AdminKycDummyVerifyBar({
                 this cannot be undone from here.
               </li>
               <li>
-                Off local (testnet / prod), the final status change is queued as a{' '}
-                <strong>multisig proposal</strong> and completes only after enough signatures.
+                Completes immediately (including Stellar investor allowlist on-chain). Normal
+                admin KYC review may still queue a multisig proposal after handoff.
               </li>
             </ul>
           </div>
