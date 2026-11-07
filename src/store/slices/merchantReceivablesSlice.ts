@@ -62,8 +62,10 @@ const merchantReceivablesSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(refreshMerchantReceivables.pending, (state) => {
-        state.status = 'loading'
+      .addCase(refreshMerchantReceivables.pending, (state, action) => {
+        if (!isBackgroundRefresh(action.meta.arg)) {
+          state.status = 'loading'
+        }
         state.error = null
       })
       .addCase(refreshMerchantReceivables.fulfilled, (state, action) => {

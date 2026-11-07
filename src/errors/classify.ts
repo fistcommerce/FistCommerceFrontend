@@ -457,6 +457,11 @@ function classifyFromText(text: string, context: AppErrorContext): ClassifiedApp
   const t = text.trim()
   if (!t) return null
 
+  const soroban = classifySorobanErrorText(t)
+  if (soroban) {
+    return { code: soroban.code, message: soroban.message, raw: soroban.raw }
+  }
+
   if (isGovernanceContext(context)) {
     const gov = classifyGovernanceFromText(t, context)
     if (gov) return gov

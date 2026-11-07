@@ -411,9 +411,10 @@ const MerchantApplyLoanPage = () => {
     }
 
     if (tiersError || riskTiers.length === 0) {
+      const queryErr = tiersQuery.error
       const detail =
-        tiersError instanceof Error && tiersError.message.trim()
-          ? tiersError.message.trim()
+        queryErr instanceof Error && queryErr.message.trim()
+          ? queryErr.message.trim()
           : 'Could not load loan durations for this network. Refresh and try again.'
       return (
         <select
