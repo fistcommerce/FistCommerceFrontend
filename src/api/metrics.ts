@@ -130,13 +130,12 @@ export function displayInvestorRoiPercent(value: number): string {
 }
 
 /**
- * Utilization: values in (0, 1] are treated as fractions (e.g. `0.65` → 65%).
- * Values greater than 1 are treated as already percent points (e.g. `65` → 65%).
+ * Utilization: numeric percent points from API (same as APY) — no scaling.
+ * Backend `_to_pct` already multiplies the outstanding/TVL ratio by 100.
  */
 export function displayPoolUtilization(value: number): string {
   if (!Number.isFinite(value)) return '—'
-  const pct = value > 0 && value <= 1 ? value * 100 : value
-  return `${formatMetricNumberTwoDecimalsNoGrouping(pct)}%`
+  return `${formatMetricNumberTwoDecimalsNoGrouping(value)}%`
 }
 
 /** `minDeposit` as a plain formatted number (no currency symbol — API may encode units elsewhere). */

@@ -57,6 +57,7 @@ async function initStellarWalletsKit(): Promise<KitNs> {
 
   const { StellarWalletsKit, Networks } = mod
   const modules: KitModule[] = [new VarialModule(), new AlbedoModule()]
+  const inVarialMobile = isVarialMobileWebView()
 
   // Varial mobile WebView marks VarialModule unavailable and requires WalletConnect
   // (see VarialModule.isAvailable — window.stellar.platform === "mobile").
@@ -80,13 +81,28 @@ async function initStellarWalletsKit(): Promise<KitNs> {
           description: 'Fist Commerce Stellar Testnet',
           url: window.location.origin,
           icons: [icon],
+          // Helps wallets return to the dapp after approve (mobile).
+          redirect: {
+            universal: window.location.origin,
+          },
         },
         allowedChains: [WalletConnectTargetChain.TESTNET],
+        appKitOptions: {
+          // Stale WC sessions can leave AppKit on "Connecting…" forever.
+          enableReconnect: false,
+          // Inside Varial's in-app browser, featuring Varial triggers a deeplink that
+          // never surfaces an approve sheet → stuck on "Connecting to your wallet…".
+          // Prefer the QR / copy-URI path so the user can paste into Varial's scanner.
+          ...(inVarialMobile
+            ? {
+                featuredWalletIds: [],
+                allWallets: 'HIDE' as const,
+              }
+            : {}),
+        } as never,
       }) as KitModule,
     )
   }
-
-  const inVarialMobile = isVarialMobileWebView()
 
   // Always re-init: Vite HMR can remount kit package state and leave activeModules empty,
   // which sticks the auth modal on "Loading wallets...".
@@ -128,6 +144,8 @@ async function isWalletOnStellarTestnet(
   }
 }
 
+const WC_CONNECT_TIMEOUT_MS = 90_000
+
 export async function connectStellarWalletViaKit(opts?: {
   /** Drop the prior kit session so the auth modal can pick a different wallet/account. */
   forceReselect?: boolean
@@ -143,19 +161,45 @@ export async function connectStellarWalletViaKit(opts?: {
   }
   // Prime wallet list before the modal paints.
   await StellarWalletsKit.refreshSupportedWallets()
-  const { address } = await StellarWalletsKit.authModal()
-  const normalized = address.trim().toUpperCase()
-  if (!normalized.startsWith('G') || normalized.length !== 56) {
-    throw new Error('Stellar wallet did not return a valid account address.')
-  }
 
-  const { ok, networkLabel } = await isWalletOnStellarTestnet(StellarWalletsKit, Networks)
-  if (!ok) {
-    throw new Error(
-      `Your Stellar wallet is on ${networkLabel}. Open Freighter/Varial → switch the network to Test Net, then connect again.`,
-    )
+  // WalletConnect approval can hang on "Connecting to your wallet…" (deeplink / no approve).
+  // Bound the wait so the UI can unlock and the user can retry.
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+  try {
+    const { address } = await Promise.race([
+      StellarWalletsKit.authModal(),
+      new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(
+            new Error(
+              'WalletConnect timed out while connecting. Close the modal, confirm Varial is on Test Net, then try again — or copy the WalletConnect URI into Varial’s scanner.',
+            ),
+          )
+        }, WC_CONNECT_TIMEOUT_MS)
+      }),
+    ])
+    const normalized = address.trim().toUpperCase()
+    if (!normalized.startsWith('G') || normalized.length !== 56) {
+      throw new Error('Stellar wallet did not return a valid account address.')
+    }
+
+    const { ok, networkLabel } = await isWalletOnStellarTestnet(StellarWalletsKit, Networks)
+    if (!ok) {
+      throw new Error(
+        `Your Stellar wallet is on ${networkLabel}. Open Freighter/Varial → switch the network to Test Net, then connect again.`,
+      )
+    }
+    return { address: normalized }
+  } catch (e) {
+    try {
+      await StellarWalletsKit.disconnect()
+    } catch {
+      /* ignore */
+    }
+    throw e
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
   }
-  return { address: normalized }
 }
 
 export async function disconnectStellarWalletKit(): Promise<void> {

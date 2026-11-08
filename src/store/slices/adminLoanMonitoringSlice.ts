@@ -257,6 +257,12 @@ export const approveAdminLoanMonitoringLoan = createAsyncThunk(
       if (thunkApi.signal.aborted || isAbortError(e)) {
         throw e
       }
+      // Approve can land on-chain while the API still errors; refresh so gates/status heal.
+      try {
+        await thunkApi.dispatch(refreshAdminLoanMonitoringDetail({ loanId })).unwrap()
+      } catch {
+        // Keep the original approve error.
+      }
       return thunkApi.rejectWithValue(rejectUserFacing(e, 'Could not complete loan action.'))
     }
   },
