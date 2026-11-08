@@ -446,7 +446,9 @@ const AdminGovernanceProposalDetailPage = () => {
           : 'Executing proposal',
         loadingDescription: pendingConfirmExecute
           ? 'Confirming the mined transaction with the server — not submitting a new one…'
-          : 'Submitting EntryPoint.handleOps from your connected wallet…',
+          : isSorobanProposal
+            ? 'Relaying FistMultisig.confirm + execute via the backend…'
+            : 'Submitting EntryPoint.handleOps from your connected wallet…',
         errorTitle: 'Unable to execute proposal',
         directSuccessTitle: 'Proposal executed',
       }
@@ -500,6 +502,7 @@ const AdminGovernanceProposalDetailPage = () => {
     actionKind,
     actionStatus,
     actionError,
+    isSorobanProposal,
   ])
 
   if (!proposalId) {

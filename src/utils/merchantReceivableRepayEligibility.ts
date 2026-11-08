@@ -2,6 +2,7 @@ import {
   isLoanLifecycleEligibleForRepayment,
   type LoanDetailsResponse,
 } from '@/api/loanDetails'
+import { isStellarTestnetPreferred } from '@/contract_config/networkCapabilities'
 import { fetchReceivablePayoutStatus } from '@/api/payout'
 import { parseMoneyToHuman } from '@/utils/mapLoanDetailsToRepayReviewView'
 import { normalizeReceivableIdToBytes32 } from '@/utils/receivableId'
@@ -59,11 +60,13 @@ async function resolvePaidOutToMerchant(
   const status = lifecycleStatus.trim().toLowerCase()
   if (status === 'matured' || status === 'defaulted' || status === 'repaid') return true
   if (status === 'paid_out') return true
+  // Stellar Track A: fund already disbursed even if DB still says funded.
+  if (status === 'funded' && isStellarTestnetPreferred()) return true
   if (!onChainReceivableId) return false
   try {
     return (await fetchReceivablePayoutStatus(accessToken, onChainReceivableId)).isPaidOut
   } catch {
-    return status === 'paid_out'
+    return status === 'paid_out' || (status === 'funded' && isStellarTestnetPreferred())
   }
 }
 

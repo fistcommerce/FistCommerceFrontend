@@ -21,6 +21,7 @@ import type {
   LoanMonitoringDetailView,
 } from '@/components/admin/loan-monitoring/types'
 import { mapAdminLoanMonitoringDetailToView, isLoanLifecycleFundedOrLater } from '@/utils/mapAdminLoanMonitoringList'
+import { isStellarTestnetPreferred } from '@/contract_config/networkCapabilities'
 import {
   adminLoanMonitoringListCacheKey,
   adminLoanMonitoringListsEqual,
@@ -227,7 +228,10 @@ export const refreshAdminLoanMonitoringDetail = createAsyncThunk(
 
       return {
         loanId,
-        detail: mapAdminLoanMonitoringDetailToView(detail, { payoutStatus }),
+        detail: mapAdminLoanMonitoringDetailToView(detail, {
+          payoutStatus,
+          isStellar: isStellarTestnetPreferred(),
+        }),
       }
     } catch (e) {
       return thunkApi.rejectWithValue(rejectUserFacing(e, 'Could not complete loan action.'))
@@ -319,6 +323,12 @@ export const fundAdminLoanMonitoringLoan = createAsyncThunk(
       if (thunkApi.signal.aborted || isAbortError(e)) {
         throw e
       }
+      // Fund can land on-chain while the API still errors; refresh so gates/status heal.
+      try {
+        await thunkApi.dispatch(refreshAdminLoanMonitoringDetail({ loanId })).unwrap()
+      } catch {
+        // Keep the original fund error.
+      }
       return thunkApi.rejectWithValue(rejectUserFacing(e, 'Could not complete loan action.'))
     }
   },
@@ -363,6 +373,11 @@ export const initiateAdminLoanMonitoringPayout = createAsyncThunk(
     } catch (e) {
       if (thunkApi.signal.aborted || isAbortError(e)) {
         throw e
+      }
+      try {
+        await thunkApi.dispatch(refreshAdminLoanMonitoringDetail({ loanId })).unwrap()
+      } catch {
+        // Keep the original payout error.
       }
       return thunkApi.rejectWithValue(rejectUserFacing(e, 'Could not complete loan action.'))
     }

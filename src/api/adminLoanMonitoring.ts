@@ -1,6 +1,7 @@
 import { parseAdminWriteResponse, type AdminWriteOutcome } from '@/api/adminActionResponse'
 import { apiUrl, parseJsonResponse } from '@/api/client'
 import { fetchWithAuthRecovery } from '@/api/authorizedFetch'
+import { isStellarTestnetPreferred } from '@/contract_config/networkCapabilities'
 
 /** UI tab filter for `GET /api/loan/admin/loans/monitoring/`. */
 export type AdminLoanMonitoringTabFilter =
@@ -230,10 +231,14 @@ export function normalizeLoanMonitoringRow(raw: unknown): AdminLoanMonitoringRow
   const fundingApprovalDone = loanLifecycleFundingRank(lifecycleNorm) >= loanLifecycleFundingRank('funded')
   const canFund = admin?.canFund ?? pickBool(r, 'canFund', 'can_fund')
   const isPaidOut =
-    pickBool(r, 'isPaidOut', 'is_paid_out', 'paidOut', 'paid_out') || lifecycleNorm === 'paid_out'
-  const canInitiatePayout = Boolean(
-    receivableId?.trim() && fundingApprovalDone && !isPaidOut,
-  )
+    pickBool(r, 'isPaidOut', 'is_paid_out', 'paidOut', 'paid_out') ||
+    lifecycleNorm === 'paid_out' ||
+    // Stellar Track A: DB "funded" already means disbursed.
+    (isStellarTestnetPreferred() && lifecycleNorm === 'funded')
+  // Stellar has no separate payout step after fund_receivable.
+  const canInitiatePayout = isStellarTestnetPreferred()
+    ? false
+    : Boolean(receivableId?.trim() && fundingApprovalDone && !isPaidOut)
 
   return {
     loanId,

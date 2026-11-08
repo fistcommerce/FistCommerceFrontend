@@ -217,12 +217,17 @@ export function AdminLoanMonitoringDetailView({
         >
           <h2 className="text-[#0B1220] font-bold text-[18px] mb-2">Funding approval</h2>
           <p className="text-[#6B7488] text-[14px] mb-5">
-            Approve funding to allocate capital from the lending pool for this receivable. This does not
-            send tokens to the merchant yet.
+            {isPaidOut
+              ? 'Capital was allocated and disbursed to the merchant when funding was approved.'
+              : detail.showFundingPayoutSection
+                ? 'Approve funding to allocate capital from the lending pool. Disbursement to the merchant is a separate payout step.'
+                : 'Approve funding to allocate capital from the lending pool and disburse to the merchant in one step.'}
           </p>
           {fundingApprovalDone ? (
             <p className="text-[#16A34A] text-[14px] font-medium">
-              {isPaidOut ? 'Funding approved' : 'Funded — payout pending'}
+              {isPaidOut
+                ? 'Funding disbursed to merchant'
+                : 'Funded — payout pending'}
             </p>
           ) : (
             <button

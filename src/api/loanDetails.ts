@@ -1,5 +1,6 @@
 import { ApiRequestError, parseJsonResponse, requireApiBaseUrl } from '@/api/client'
 import { fetchWithAuthRecovery } from '@/api/authorizedFetch'
+import { isStellarTestnetPreferred } from '@/contract_config/networkCapabilities'
 import { pinataGatewayUrl } from '@/lib/pinataGateway'
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -195,7 +196,9 @@ export function canNavigateToLoanDetail(id: string): boolean {
 export function isLoanLifecycleEligibleForRepayment(statusRaw: string | null | undefined): boolean {
   const s = (statusRaw ?? '').trim().toLowerCase()
   if (!s || s === 'repaid') return false
-  return s === 'paid_out' || s === 'matured' || s === 'defaulted'
+  if (s === 'paid_out' || s === 'matured' || s === 'defaulted') return true
+  // Stellar Track A: fund_receivable already pays; DB may still say "funded".
+  return s === 'funded' && isStellarTestnetPreferred()
 }
 
 export type MerchantLoanListEntry = {

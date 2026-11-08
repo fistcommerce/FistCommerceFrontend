@@ -356,10 +356,12 @@ function verificationDocumentName(name: string, url: string | null): string {
   return LOAN_VERIFICATION_FILE_LABEL
 }
 
-/** Enabled only after the loan is verified, funded, and not yet repaid/defaulted. */
+/** Enabled after capital is deployed (EVM funded / Stellar paid_out) and not yet repaid/defaulted. */
 function resolveCanMarkDefaulted(loanStatus: string, receivableId: string | null): boolean {
   const status = loanStatus.trim().toLowerCase()
-  if (status !== 'funded') return false
+  // EVM: mark default after payout (paid_out). Also allow funded for transitional rows.
+  // Stellar Track A: fund → paid_out (disbursed); repay/default gates use paid_out.
+  if (status !== 'funded' && status !== 'paid_out') return false
   return Boolean(receivableId?.trim())
 }
 
@@ -370,6 +372,8 @@ export function shouldShowFundingApprovalSection(loanLifecycleStatus: string): b
 
 export type MapAdminLoanMonitoringDetailOptions = {
   payoutStatus?: ReceivablePayoutStatus | null
+  /** Track A: fund already pays merchant — hide EVM two-step payout/cancel. */
+  isStellar?: boolean
 }
 
 function resolveFundingApprovalDone(loanStatus: string): boolean {
@@ -379,10 +383,13 @@ function resolveFundingApprovalDone(loanStatus: string): boolean {
 function resolveIsPaidOut(
   loanStatusNorm: string,
   lifecycle: Record<string, unknown>,
-  payoutStatus?: ReceivablePayoutStatus | null,
+  payoutStatus: ReceivablePayoutStatus | null | undefined,
+  isStellar: boolean,
 ): boolean {
   if (payoutStatus != null) return payoutStatus.isPaidOut
   if (loanStatusNorm === 'paid_out') return true
+  // Stellar transitional: DB still "funded" after fund_receivable means disbursed.
+  if (isStellar && loanStatusNorm === 'funded') return true
   return pickBool(lifecycle, 'is_paid_out', 'isPaidOut')
 }
 
@@ -394,6 +401,7 @@ export function mapAdminLoanMonitoringDetailToView(
   const lifecycle = asObj(details.lifecycle)
   const repaymentDetails = asObj(details.repaymentDetails ?? details.repayment_details)
   const summary = asObj(details.summary)
+  const isStellar = Boolean(options?.isStellar)
 
   const document = resolveUploadedDocument(uploadedDocuments)
   const loanStatus = pickString(lifecycle, 'status') ?? 'created'
@@ -402,11 +410,19 @@ export function mapAdminLoanMonitoringDetailToView(
   const receivableId = pickString(receivable, 'receivableId', 'receivable_id') || null
   const canMarkDefaulted = resolveCanMarkDefaulted(loanStatus, receivableId)
 
-  const isPaidOut = resolveIsPaidOut(loanStatusNorm, lifecycle, options?.payoutStatus)
+  const isPaidOut = resolveIsPaidOut(
+    loanStatusNorm,
+    lifecycle,
+    options?.payoutStatus,
+    isStellar,
+  )
   const fundingApprovalDone = resolveFundingApprovalDone(loanStatus)
   const canApproveFunding =
     payload.admin.canFund && Boolean(receivableId) && loanStatusNorm === 'verified'
-  const canInitiatePayout = Boolean(receivableId && fundingApprovalDone && !isPaidOut)
+  // Stellar: no separate payout step. EVM: release funds after fund while not paid out.
+  const canInitiatePayout = isStellar
+    ? false
+    : Boolean(receivableId && fundingApprovalDone && !isPaidOut)
 
   return {
     loanId: monitoring.loanId,
@@ -416,7 +432,7 @@ export function mapAdminLoanMonitoringDetailToView(
     fundingApprovalDone,
     isPaidOut,
     showFundingApprovalSection: shouldShowFundingApprovalSection(loanStatus),
-    showFundingPayoutSection: fundingApprovalDone,
+    showFundingPayoutSection: isStellar ? false : fundingApprovalDone,
     canApproveFunding,
     canInitiatePayout,
     basicInfo: buildBasicInfo(basicInformation),
@@ -435,9 +451,10 @@ export function mapAdminLoanMonitoringDetailToView(
       canApprove: payload.admin.canApprove,
       canReject: payload.admin.canReject,
       canFund: payload.admin.canFund,
-      canInitiatePayout: payload.admin.canInitiatePayout,
-      // Lifecycle only (same gate as release funds): enabled while funded and not yet paid out.
-      canCancelFunding: Boolean(receivableId) && fundingApprovalDone && !isPaidOut,
+      canInitiatePayout: isStellar ? false : payload.admin.canInitiatePayout,
+      canCancelFunding: isStellar
+        ? false
+        : Boolean(receivableId) && fundingApprovalDone && !isPaidOut,
       canMarkDefaulted,
       canWriteOffShortfall: payload.admin.canWriteOffShortfall,
       uiStatus: payload.admin.uiStatus,

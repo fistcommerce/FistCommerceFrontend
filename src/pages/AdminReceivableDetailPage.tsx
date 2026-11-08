@@ -188,7 +188,9 @@ const AdminReceivableDetailPage = () => {
                   {isPaidOut
                     ? 'Funding disbursed to merchant.'
                     : fundingApprovalDone
-                      ? 'Funded — payout pending (capital allocated, not yet sent to merchant).'
+                      ? monitoringDetail?.showFundingPayoutSection
+                        ? 'Funded — payout pending (capital allocated, not yet sent to merchant).'
+                        : 'Funding allocated; disbursement is recorded on-chain with fund.'
                       : 'Funding approval pending.'}
                 </p>
               ) : null}

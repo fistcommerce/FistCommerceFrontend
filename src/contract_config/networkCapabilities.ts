@@ -53,7 +53,7 @@ const STELLAR: ReadonlySet<NetworkCapability> = new Set([
   'adminRegisterReceivable',
   'adminApproveReceivable',
   'adminFundReceivable',
-  'adminTwoStepPayout',
+  // Track A fund_receivable already pays the merchant — no EVM-style payout step.
   'adminAttestations',
   'adminInvestorAllowlist',
   'governanceMultisig',
