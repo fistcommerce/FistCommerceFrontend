@@ -55,7 +55,10 @@ const privyConfig: PrivyClientConfig = {
     },
   },
   externalWallets: {
-    walletConnect: { enabled: true },
+    // Stellar Wallets Kit owns WalletConnect/AppKit for Stellar. Enabling Privy WC
+    // initializes a second/third @walletconnect/core and hangs SignClient.connect
+    // ("Core is already initialized" → no QR / Failed to publish custom payload).
+    walletConnect: { enabled: false },
   },
   appearance: {
     walletList: [
@@ -63,7 +66,6 @@ const privyConfig: PrivyClientConfig = {
       'metamask',
       'coinbase_wallet',
       'rainbow',
-      'wallet_connect',
       'phantom',
     ],
   },

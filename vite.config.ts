@@ -31,53 +31,93 @@ function previewApiProxy(): Record<string, ProxyOptions> {
   }
 }
 
+/** Prefer real ESM builds — several @walletconnect packages only set `main` to CJS. */
+function walletConnectEsmAlias(pkg: string, esmFile = 'dist/esm/index.js') {
+  return {
+    find: new RegExp(`^${pkg.replace('/', '\\/')}$`),
+    replacement: path.resolve(__dirname, `node_modules/${pkg}/${esmFile}`),
+  }
+}
+
+const stellarKitEntries = [
+  '@creit.tech/stellar-wallets-kit',
+  '@creit.tech/stellar-wallets-kit/modules/albedo',
+  '@creit.tech/stellar-wallets-kit/modules/varial',
+  '@creit.tech/stellar-wallets-kit/modules/wallet-connect',
+  '@creit.tech/stellar-wallets-kit/modules/utils',
+  '@creit.tech/stellar-wallets-kit/sdk',
+] as const
+
 // https://vitejs.dev/config/
 export default defineConfig(() => {
   const publicPreview = process.env.PUBLIC_PREVIEW === '1'
   return {
-  plugins: [react(), tailwindcss()],
-  server: {
-    host: publicPreview ? true : undefined,
-    allowedHosts: publicPreview
-      ? ['.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok-free.dev', '.trycloudflare.com']
-      : undefined,
-    proxy: {
-      ...previewApiProxy(),
-      // Same-origin proxy so browser debug logs reach the local ingest server (avoids CORS).
-      '/ingest/fb9c849e-37ad-4a71-b70c-257ccd07e08d': {
-        target: 'http://127.0.0.1:7881',
-        changeOrigin: true,
+    plugins: [react(), tailwindcss()],
+    server: {
+      host: publicPreview ? true : undefined,
+      allowedHosts: publicPreview
+        ? ['.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok-free.dev', '.trycloudflare.com']
+        : undefined,
+      proxy: {
+        ...previewApiProxy(),
+        // Same-origin proxy so browser debug logs reach the local ingest server (avoids CORS).
+        '/ingest/fb9c849e-37ad-4a71-b70c-257ccd07e08d': {
+          target: 'http://127.0.0.1:7881',
+          changeOrigin: true,
+        },
       },
     },
-  },
-  /** Recharts imports `react-is`; ensure it’s pre-bundled so dev server resolves it. */
-  optimizeDeps: {
-    include: ['react-is', 'recharts', 'buffer', '@stellar/stellar-sdk'],
-    // Keep the kit out of multi-entry prebundling so Preact signals state is not duplicated
-    // (duplicate state leaves the auth modal stuck on "Loading wallets...").
-    exclude: [
-      '@creit.tech/stellar-wallets-kit',
-      '@creit.tech/stellar-wallets-kit/modules/albedo',
-      '@creit.tech/stellar-wallets-kit/modules/varial',
-      '@creit.tech/stellar-wallets-kit/modules/wallet-connect',
-      '@creit.tech/stellar-wallets-kit/modules/utils',
-      '@creit.tech/stellar-wallets-kit/sdk',
-    ],
-  },
-  define: {
-    global: 'globalThis',
-  },
-  resolve: {
-    alias: [
-      { find: '@', replacement: path.resolve(__dirname, './src') },
-      { find: 'buffer', replacement: path.resolve(__dirname, './node_modules/buffer/') },
-      // Exact match only — Freighter's UMD bundle breaks Vite named ESM imports (`getAddress`).
-      {
-        find: /^@stellar\/freighter-api$/,
-        replacement: path.resolve(__dirname, './src/shims/freighter-api.ts'),
-      },
-    ],
-    dedupe: ['preact', '@preact/signals', '@creit.tech/stellar-wallets-kit'],
-  },
+    /**
+     * Prebundle the kit + WalletConnect graph so CJS deps (events, dayjs, @walletconnect/*)
+     * get proper ESM interop. Keep Preact deduped so auth-modal signals stay single-instance
+     * (previously we excluded the kit, which broke WC named imports in Vite).
+     */
+    optimizeDeps: {
+      include: [
+        'react-is',
+        'recharts',
+        'buffer',
+        'events',
+        'dayjs',
+        'preact',
+        '@preact/signals',
+        '@stellar/stellar-sdk',
+        ...stellarKitEntries,
+      ],
+    },
+    define: {
+      global: 'globalThis',
+    },
+    resolve: {
+      alias: [
+        { find: '@', replacement: path.resolve(__dirname, './src') },
+        { find: 'buffer', replacement: path.resolve(__dirname, './node_modules/buffer/') },
+        // CJS `events` has no named ESM export; WC/AppKit import { EventEmitter } from 'events'.
+        {
+          find: /^events$/,
+          replacement: path.resolve(__dirname, './src/shims/events.ts'),
+        },
+        // dayjs `main` is a UMD min bundle without ESM default export.
+        {
+          find: /^dayjs$/,
+          replacement: path.resolve(__dirname, 'node_modules/dayjs/esm/index.js'),
+        },
+        // WalletConnect utils packages ship ESM but advertise CJS-only `main`.
+        walletConnectEsmAlias('@walletconnect/time'),
+        walletConnectEsmAlias('@walletconnect/events'),
+        walletConnectEsmAlias('@walletconnect/window-getters'),
+        walletConnectEsmAlias('@walletconnect/window-metadata'),
+        walletConnectEsmAlias('@walletconnect/safe-json'),
+        walletConnectEsmAlias('@walletconnect/jsonrpc-utils'),
+        walletConnectEsmAlias('@walletconnect/environment'),
+        walletConnectEsmAlias('@walletconnect/jsonrpc-types', 'dist/index.es.js'),
+        // Exact match only — Freighter's UMD bundle breaks Vite named ESM imports (`getAddress`).
+        {
+          find: /^@stellar\/freighter-api$/,
+          replacement: path.resolve(__dirname, './src/shims/freighter-api.ts'),
+        },
+      ],
+      dedupe: ['preact', '@preact/signals', '@preact/signals-core', '@creit.tech/stellar-wallets-kit'],
+    },
   }
 })
