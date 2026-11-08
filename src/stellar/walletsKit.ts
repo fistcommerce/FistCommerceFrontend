@@ -78,17 +78,20 @@ async function initStellarWalletsKit(): Promise<KitNs> {
               ? logoUrl
               : new URL(logoUrl, window.location.origin).href
             : `${window.location.origin}/`
+        // AppKit Metadata types only allow name/description/url/icons; keep
+        // WalletConnect `redirect` at runtime via a non-fresh object (no excess check).
+        const wcMetadata = {
+          name: 'Fist Commerce',
+          description: 'Fist Commerce Stellar Testnet',
+          url: window.location.origin,
+          icons: [icon],
+          redirect: {
+            universal: window.location.origin,
+          },
+        }
         const wcModule = new WalletConnectModule({
           projectId: wcProjectId,
-          metadata: {
-            name: 'Fist Commerce',
-            description: 'Fist Commerce Stellar Testnet',
-            url: window.location.origin,
-            icons: [icon],
-            redirect: {
-              universal: window.location.origin,
-            },
-          },
+          metadata: wcMetadata,
           allowedChains: [WalletConnectTargetChain.TESTNET],
           appKitOptions: {
             // Stale WC sessions can leave AppKit on "Connecting…" forever.
@@ -117,9 +120,7 @@ async function initStellarWalletsKit(): Promise<KitNs> {
         if (modal && typeof modal.open === 'function') {
           const open = modal.open.bind(modal)
           modal.open = (opts: { uri: string }) => {
-            console.info('[FistCommerce WC] AppKit open', { hasUri: Boolean(opts?.uri) })
             open(opts)
-            // Bump AppKit host z-index after open so QR is not trapped under SWK.
             requestAnimationFrame(() => {
               document.querySelectorAll('w3m-modal, appkit-modal, wcm-modal').forEach((el) => {
                 const node = el as HTMLElement
@@ -127,22 +128,6 @@ async function initStellarWalletsKit(): Promise<KitNs> {
                 node.style.position = node.style.position || 'fixed'
               })
             })
-          }
-        }
-        const origGetAddress = wcModule.getAddress?.bind(wcModule)
-        if (origGetAddress) {
-          wcModule.getAddress = async () => {
-            console.info('[FistCommerce WC] getAddress start', {
-              available: await wcModule.isAvailable?.(),
-            })
-            try {
-              const result = await origGetAddress()
-              console.info('[FistCommerce WC] getAddress ok')
-              return result
-            } catch (err) {
-              console.error('[FistCommerce WC] getAddress failed', err)
-              throw err
-            }
           }
         }
         modules.unshift(wcModule)

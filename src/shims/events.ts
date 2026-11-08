@@ -6,7 +6,8 @@
  * Import the CJS file by absolute path (bypasses this alias) and re-export
  * named + default so ESM importers work.
  */
-// eslint-disable-next-line @typescript-eslint/no-require-imports
+// Deep CJS path has no bundled types; runtime shape matches Node's EventEmitter.
+// @ts-expect-error -- no declaration for node_modules/events/events.js
 import eventsCjs from '../../node_modules/events/events.js'
 
 type EventEmitterCtor = typeof eventsCjs & {
