@@ -59,6 +59,7 @@ export default defineConfig(() => {
       '@creit.tech/stellar-wallets-kit',
       '@creit.tech/stellar-wallets-kit/modules/albedo',
       '@creit.tech/stellar-wallets-kit/modules/varial',
+      '@creit.tech/stellar-wallets-kit/modules/wallet-connect',
       '@creit.tech/stellar-wallets-kit/modules/utils',
       '@creit.tech/stellar-wallets-kit/sdk',
     ],

@@ -512,7 +512,7 @@ export default function ConnectWallet({ onContinue }: ConnectWalletProps) {
           <h3 className="text-black font-bold text-[20px]">Connect Your Wallet</h3>
           <p className="text-[#6B7488]">
             {stellarMode
-              ? 'Connect with Freighter/Varial or Albedo. In the wallet extension, set the network to Test Net before connecting. Choose Testnet or Mainnet at the top right for EVM wallets.'
+              ? 'Connect with Freighter/Varial, WalletConnect, or Albedo (Test Net). In the Varial mobile app, approve the in-app WalletConnect prompt — do not install again. Choose Testnet or Mainnet at the top right for EVM wallets.'
               : 'Use email/Google to create an embedded wallet, or connect an external wallet (MetaMask, WalletConnect, Phantom EVM). Choose Stellar Testnet at the top right to use Stellar wallets.'}
           </p>
         </div>

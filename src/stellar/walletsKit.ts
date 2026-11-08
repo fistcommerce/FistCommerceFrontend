@@ -1,3 +1,4 @@
+import logoUrl from '@/assets/logo.png'
 import { STELLAR_TESTNET_CHAIN_ID } from '@/stellar/chain'
 import {
   STELLAR_TEST_ASSET_CODE,
@@ -7,6 +8,38 @@ import {
 } from '@/stellar/testAsset'
 
 type KitNs = typeof import('@creit.tech/stellar-wallets-kit')
+
+type KitModule = {
+  productId?: string
+  isAvailable?: () => Promise<boolean>
+}
+
+/** True inside Varial/Freighter mobile in-app browser (kit expects WalletConnect there). */
+function isVarialMobileWebView(): boolean {
+  try {
+    const stellar = (window as Window & { stellar?: { provider?: string; platform?: string } })
+      .stellar
+    return (
+      stellar?.platform === 'mobile' &&
+      (stellar.provider === 'varial' || stellar.provider === 'freighter')
+    )
+  } catch {
+    return false
+  }
+}
+
+async function waitForModuleAvailable(mod: KitModule | undefined, timeoutMs = 8000): Promise<void> {
+  if (!mod?.isAvailable) return
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      if (await mod.isAvailable()) return
+    } catch {
+      /* keep waiting */
+    }
+    await new Promise((r) => setTimeout(r, 50))
+  }
+}
 
 /** Initialize kit modules (Testnet) and return the kit namespace. */
 export async function initAndGetKit(): Promise<KitNs> {
@@ -23,21 +56,57 @@ async function initStellarWalletsKit(): Promise<KitNs> {
   const { VarialModule } = await import('@creit.tech/stellar-wallets-kit/modules/varial')
 
   const { StellarWalletsKit, Networks } = mod
+  const modules: KitModule[] = [new VarialModule(), new AlbedoModule()]
+
+  // Varial mobile WebView marks VarialModule unavailable and requires WalletConnect
+  // (see VarialModule.isAvailable — window.stellar.platform === "mobile").
+  const wcProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID?.trim()
+  if (wcProjectId) {
+    const {
+      WalletConnectModule,
+      WalletConnectTargetChain,
+    } = await import('@creit.tech/stellar-wallets-kit/modules/wallet-connect')
+    const icon =
+      typeof logoUrl === 'string' && logoUrl
+        ? logoUrl.startsWith('http')
+          ? logoUrl
+          : new URL(logoUrl, window.location.origin).href
+        : `${window.location.origin}/`
+    modules.unshift(
+      new WalletConnectModule({
+        projectId: wcProjectId,
+        metadata: {
+          name: 'Fist Commerce',
+          description: 'Fist Commerce Stellar Testnet',
+          url: window.location.origin,
+          icons: [icon],
+        },
+        allowedChains: [WalletConnectTargetChain.TESTNET],
+      }) as KitModule,
+    )
+  }
+
+  const inVarialMobile = isVarialMobileWebView()
 
   // Always re-init: Vite HMR can remount kit package state and leave activeModules empty,
   // which sticks the auth modal on "Loading wallets...".
-  // Only wallets that support signMessage (needed for Stellar login):
-  // Varial/Freighter + Albedo.
-  // Omitted: Lobstr/xBull (Vite CJS interop), Rabet (no signMessage).
+  // Wallets with signMessage (Stellar login): Varial/Freighter, WalletConnect, Albedo.
   StellarWalletsKit.init({
     network: Networks.TESTNET,
-    modules: [new VarialModule(), new AlbedoModule()],
+    modules: modules as never[],
     authModal: {
-      showInstallLabel: true,
-      hideUnsupportedWallets: false,
+      // Inside Varial mobile, Varial extension is intentionally unavailable — hide Install noise.
+      showInstallLabel: !inVarialMobile,
+      hideUnsupportedWallets: inVarialMobile,
     },
   })
   StellarWalletsKit.setNetwork(Networks.TESTNET)
+
+  // SignClient init is async; wait so refreshSupportedWallets doesn't mark WC unavailable
+  // and the auth modal wrongly opens the WalletConnect homepage.
+  const wcMod = modules.find((m) => m.productId === 'wallet_connect')
+  await waitForModuleAvailable(wcMod)
+
   return mod
 }
 
