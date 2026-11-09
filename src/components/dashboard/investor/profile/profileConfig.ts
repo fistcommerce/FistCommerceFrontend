@@ -42,10 +42,10 @@ export function formatProfileDobForDisplay(dateOfBirth: string | null | undefine
   return d.toLocaleDateString('en-US', { dateStyle: 'medium' })
 }
 
-/** Stats row under the hero — pool position from chain; deposits/interest from metrics API when available. */
+/** Stats row under the hero — deposits/interest/position from metrics API (NAV-marked). */
 export function buildInvestorProfileStatsFromApi(
   investorMetrics: InvestorMetrics | null,
-  onChainPoolPositionDisplay?: string | null,
+  _onChainPoolPositionDisplay?: string | null,
 ): InvestorProfileStat[] {
   const totalInvested = investorMetrics
     ? displayDashboardCompactUsd(investorMetrics.total_deposited)
@@ -53,13 +53,9 @@ export function buildInvestorProfileStatsFromApi(
   const totalEarnings = investorMetrics
     ? displayDashboardCompactUsd(investorMetrics.total_interest_earned)
     : '$--'
-  const onChainPosition = onChainPoolPositionDisplay?.trim()
-  const currentPosition =
-    onChainPosition && onChainPosition !== '—'
-      ? onChainPosition
-      : investorMetrics
-        ? displayDashboardCompactUsd(investorMetrics.current_position_value)
-        : '$--'
+  const currentPosition = investorMetrics
+    ? displayDashboardCompactUsd(investorMetrics.current_position_value)
+    : '$--'
 
   return [
     {
@@ -87,11 +83,11 @@ export function buildInvestorProfileStatsFromApi(
   ]
 }
 
-/** Overview tab portfolio card — combines investor + pool metrics APIs; position from chain when provided. */
+/** Overview tab portfolio card — investor + pool metrics APIs; position is NAV from API. */
 export function buildInvestorPortfolioMetricsFromApi(
   investorMetrics: InvestorMetrics | null,
   poolMetrics: PoolMetrics | null,
-  onChainPoolPositionDisplay?: string | null,
+  _onChainPoolPositionDisplay?: string | null,
 ): InvestorPortfolioMetric[] {
   const shareRaw = investorMetrics ? investorMetricFieldString(investorMetrics.share_of_pool) : ''
   const shareHelper =
@@ -99,13 +95,9 @@ export function buildInvestorPortfolioMetricsFromApi(
       ? `Pool share ${displayDashboardPercentString(shareRaw)}`
       : ''
 
-  const onChainPosition = onChainPoolPositionDisplay?.trim()
-  const currentPositionValue =
-    onChainPosition && onChainPosition !== '—'
-      ? onChainPosition
-      : investorMetrics
-        ? displayDashboardCompactUsd(investorMetrics.current_position_value)
-        : '$--'
+  const currentPositionValue = investorMetrics
+    ? displayDashboardCompactUsd(investorMetrics.current_position_value)
+    : '$--'
 
   return [
     {

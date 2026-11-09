@@ -74,18 +74,14 @@ export function poolMetricsToHeaderStats(pool: PoolMetrics): PoolStatItem[] {
 
 export function investorMetricsToMyStats(
   inv: InvestorMetrics,
-  onChainPoolPositionDisplay?: string | null,
+  _onChainPoolPositionDisplay?: string | null,
 ): PoolStatItem[] {
-  const onChainPosition = onChainPoolPositionDisplay?.trim()
-  const positionValue =
-    onChainPosition && onChainPosition !== '—'
-      ? onChainPosition
-      : displayDashboardCompactUsd(inv.current_position_value)
-
+  // Position is NAV-marked on the API (units × AUM / total_units). Do not override
+  // with raw on-chain units — those omit repayment income still in the pool.
   return [
     { label: 'Total deposited', value: displayDashboardCompactUsd(inv.total_deposited) },
     { label: 'Total withdrawn', value: displayDashboardCompactUsd(inv.total_withdrawn) },
-    { label: 'Current position value', value: positionValue },
+    { label: 'Current position value', value: displayDashboardCompactUsd(inv.current_position_value) },
     { label: 'Total interest earned', value: displayDashboardCompactUsd(inv.total_interest_earned) },
     { label: 'Share of pool', value: displayDashboardPercentString(inv.share_of_pool) },
     { label: 'Net deposited', value: displayDashboardCompactUsd(inv.netDeposited) },
